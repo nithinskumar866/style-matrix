@@ -1,5 +1,6 @@
 from sqlalchemy import Column, ForeignKey, Integer, String, Float, DateTime, JSON
 from .database import Base
+from pgvector.sqlalchemy import Vector
 from datetime import datetime, timezone
 from sqlalchemy.orm import relationship
 
@@ -15,6 +16,8 @@ class ClothingItem(Base):
     image_path = Column(String)
     user_id = Column(Integer, ForeignKey("users.id"))
     user = relationship("User", back_populates="clothing_items")
+    embedding = Column(Vector)
+    attribute_links = relationship("ClothingItemAttribute", back_populates="clothing_item")
 
 class User(Base):
     __tablename__ = "users"
@@ -40,10 +43,10 @@ class User(Base):
 class Feedback(Base):
     __tablename__ = "feedback"
 
-    id = Column(String, primary_key=True)
+    id = Column(Integer, primary_key=True)
 
     # Supabase user id (UUID string)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
 
     # Outfit that was recommended
     # outfit_id = Column(String, ForeignKey("outfits.id"), nullable=True)
@@ -68,3 +71,27 @@ class Feedback(Base):
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     user = relationship("User", back_populates="feedbacks")
+
+class Attributes(Base):
+    __tablename__ = "attributes"
+    id = Column(Integer, primary_key = True)
+    name = Column(String)
+    item_links = relationship("ClothingItemAttribute", back_populates="attribute")
+
+class ClothingItemAttribute(Base):
+    __tablename__ = "clothing_item_attributes"
+
+    clothing_item_id = Column(
+        Integer,
+        ForeignKey("clothing_items.id", ondelete="CASCADE"),
+        primary_key=True
+    )
+    attribute_id = Column(
+        Integer,
+        ForeignKey("attributes.id", ondelete="CASCADE"),
+        primary_key=True
+    )
+
+    # Optional relationships to access the related objects easily
+    clothing_item = relationship("ClothingItem", back_populates="attribute_links")
+    attribute = relationship("Attribute", back_populates="item_links")

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, List
 
 from pydantic import BaseModel
 
@@ -12,7 +12,8 @@ class ClothingBase(BaseModel):
     image_path: str
     
 class ClothingCreate(ClothingBase):
-    user_id: str 
+    user_id: str
+    embedding: List[float]
 
 class ClothingResponse(ClothingBase):
     id: int
