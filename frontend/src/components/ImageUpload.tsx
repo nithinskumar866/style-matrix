@@ -97,11 +97,9 @@
 
 
 
-import { useState, useRef } from "react";
-import { supabase } from "../lib/supabaseClient";
-import {uploadImageToSupabase} from "../../helper";
-import { Folder } from "lucide-react";
-import { AppContext, useAppContext } from "@/context/AppContext";
+import { useAppContext } from "@/context/AppContext";
+import { useRef, useState } from "react";
+import { uploadImageToSupabase } from "../../helper";
 
 
 export default function ImageUpload() {
@@ -133,7 +131,7 @@ let imageUrls : String [] =[];
         imageUrls.push(imageUrl)
 
       // 3️⃣ Send URL to Backend
-      await fetch(`${BACKEND_URL}/add-item`, {
+      const response = await fetch(`${BACKEND_URL}/api/wardrobe/add-clothing`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

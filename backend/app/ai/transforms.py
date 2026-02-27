@@ -1,5 +1,5 @@
 from torchvision import transforms
-from config import IMAGE_SIZE
+from .config import IMAGE_SIZE
 
 train_transform = transforms.Compose([
     transforms.Resize((IMAGE_SIZE, IMAGE_SIZE)),

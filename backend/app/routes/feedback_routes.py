@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from fastapi import Depends
-from services import get_current_user
+from app.services import get_current_user
 router = APIRouter(prefix="/feedback", tags=["Feedback"])
 
 

@@ -1,8 +1,5 @@
 import { supabase } from "@/lib/supabaseClient";
 import type { Session, User } from "@supabase/supabase-js";
-//import { BrowserRouter } from "react-router-dom";
-
-type UserProfile = any;
 import {
   createContext,
   useContext,
@@ -11,6 +8,9 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate as useNavigateRouter } from "react-router-dom";
+//import { BrowserRouter } from "react-router-dom";
+
+type UserProfile = any;
 
 const useNavigate = useNavigateRouter;
 interface AppContextType {
@@ -72,7 +72,7 @@ export const AppContextProvider = ({ children }: AppContextProviderProps) => {
 
   const signup = async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signUp({ email, password }); 
-    debugger;
+
     if (error) throw error;
     configureSessionUserData(data.session);
     navigate("/");
@@ -82,7 +82,7 @@ export const AppContextProvider = ({ children }: AppContextProviderProps) => {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
-    });debugger;
+    });
     if (error) throw error;
     configureSessionUserData(data.session);
     navigate("/");

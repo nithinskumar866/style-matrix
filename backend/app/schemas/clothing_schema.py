@@ -2,14 +2,11 @@ from typing import Optional, List
 
 from pydantic import BaseModel
 
+class ImageAddRequest(BaseModel):
+    imageUrls: List[str]
 class ClothingBase(BaseModel):
-    category: str                  # top, bottom, outerwear, dress
-    color: str                     # primary color
-    pattern: Optional[str] = None  # solid, striped, checked, etc.
-    fabric: Optional[str] = None   # cotton, denim, wool (user input)
-    season: Optional[str] = None   # summer, winter, all-season
-    occasion: Optional[str] = None # casual, formal, party
-    image_path: str
+    category: str
+    image_url: str
     
 class ClothingCreate(ClothingBase):
     user_id: str

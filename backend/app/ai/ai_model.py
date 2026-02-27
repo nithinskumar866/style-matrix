@@ -1,7 +1,19 @@
 import torch.nn as nn
 import torchvision.models as models
-from config import NUM_CLASSES
+from .config import NUM_CLASSES
+import torch
+import os
 
+def load_model():
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(BASE_DIR, "fashion_resnet50.pth")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = FashionModel()
+    state_dict = torch.load(model_path, map_location=device)
+    model.load_state_dict(state_dict)
+    model.to(device=device)
+    model.eval()
+    return model    
 
 class FashionModel(nn.Module):
     def __init__(self):

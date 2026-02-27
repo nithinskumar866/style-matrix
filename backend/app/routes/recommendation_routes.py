@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from services import generate_candidates, rank_candidates
+from app.services import generate_candidates, rank_candidates
 from app.database import get_db
 from app.crud import get_user_items
 router = APIRouter()

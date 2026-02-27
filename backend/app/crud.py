@@ -10,7 +10,16 @@ def create_user(db: Session, user_data):
     return user
 
 def get_user(db: Session, user_id: str):
-    return db.query(User).filter(User.id==user_id).first()
+    db_user = db.query(User).filter(
+    User.user_id == user_id
+    ).first()
+
+    if not db_user:
+        db_user = User(user_id=user_id)
+        db.add(db_user)
+        db.commit()
+        db.refresh(db_user)
+    return db_user
 
 def add_clothing_item(db: Session, item_data: ClothingCreate, user_id):
     item = ClothingItem(**item_data)
