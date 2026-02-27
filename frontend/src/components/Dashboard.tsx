@@ -6,7 +6,7 @@ import OutfitIdeas from "./OutfitIdeas";
 import Settings from "./Settings";
 import { useState, useEffect } from "react";
 import { supabase } from "../lib/supabaseClient";
-
+import { useNavigate } from "react-router-dom";
 
 export default function Dashboard() {
   const [activePage, setActivePage] = useState("dashboard");
@@ -39,11 +39,14 @@ useEffect(() => {
         {/* Profile Section */}
         <div className="flex items-center gap-3">
           <img
-            src={`https://api.dicebear.com/7.x/initials/svg?seed=${user?.email}`}
+            src={
+                user?.user_metadata?.avatar_url ||
+                `https://api.dicebear.com/7.x/initials/svg?seed=${user?.email}`
+            }
             className="rounded-full w-10 h-10"
-          />
+            />
           <div>
-            <p className="text-sm font-medium">Logged in as</p>
+            <p className="text-sm font-medium">Signed in by </p>
             <p className="text-xs text-gray-500">  
                 {user?.email || "Loading..."}
             </p>

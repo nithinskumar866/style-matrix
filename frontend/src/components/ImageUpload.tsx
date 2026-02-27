@@ -124,7 +124,7 @@ export default function ImageUpload() {
 let imageUrls : String [] =[];
     for (const file of selectedFiles) {
 
-      // 1️⃣ Upload to Supabase Storage
+      // Upload to Supabase Storage
       
       const imageUrl = await uploadImageToSupabase(file , "clothingImages");
         //console.log(imageUrl);
@@ -140,7 +140,7 @@ let imageUrls : String [] =[];
         body: JSON.stringify({
          imageUrls : imageUrls,
         }),
-      });
+      }).then((data)=>(setSelectedFiles([])))
 
     }
 
