@@ -25,6 +25,8 @@ class User(Base):
 class ClothingItem(Base):
     __tablename__ = "clothing_items"
 
+    last_worn_date = Column(DateTime(timezone=True), nullable=True)
+    score = Column(Float, default=1.0)
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String)
     image_url = Column(String)

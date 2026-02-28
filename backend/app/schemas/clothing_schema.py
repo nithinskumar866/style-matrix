@@ -4,6 +4,10 @@ from pydantic import BaseModel
 
 class ImageAddRequest(BaseModel):
     imageUrls: List[str]
+    
+class WearTodayRequest(BaseModel):
+    item_ids: List[int]
+        
 class ClothingBase(BaseModel):
     category: str
     image_url: str

@@ -1,13 +1,13 @@
-import { useState, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { LayoutGrid, Camera, Sparkles, Settings, User } from "lucide-react";
+import { Camera, LayoutGrid, Settings, Sparkles, User } from "lucide-react";
+import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
 // Import your page components
-import Wardrobe from "./Wardrobe";
+import ImageUpload from "./ImageUpload"; // We will create the new version of this next
 import OutfitIdeas from "./OutfitIdeas";
 import SettingsPage from "./Settings";
-import ImageUpload from "./ImageUpload"; // We will create the new version of this next
+import Wardrobe from "./Wardrobe";
 
 // --- Main Dashboard Component ---
 export default function Dashboard() {
@@ -17,7 +17,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-slate-950 text-white font-sans">
       {/* Subtle background pattern for glass effect */}
       <div className="fixed inset-0 z-0 opacity-50">
-        <div className="absolute inset-0 bg-linear-to-br from-indigo-950 via-slate-950 to-rose-950"></div>
+        <div className="absolute inset-0 from-indigo-950 via-slate-950 to-rose-950"></div>
       </div>
       
       <Sidebar activePage={activePage} setActivePage={setActivePage} />

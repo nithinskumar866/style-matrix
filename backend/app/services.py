@@ -199,11 +199,22 @@ def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
     for slot in slots:
         # Note: Added category filter back in so 'top' doesn't return 'shoes'
         query = text("""
-            SELECT id, image_url, category, embedding 
-            FROM clothing_items 
-            WHERE user_id = :user_id
-            AND category::int between :start and :end
-            ORDER BY embedding <=> :text_emb 
+            WITH scored_items AS(
+                SELECT 
+                    id,
+                    image_url, 
+                    category, 
+                    embedding, 
+                    COALESCE(EXTRACT(DAY FROM (NOW() - last_worn_date)), 100) as last_worn_days, 
+                    (1 - (embedding <=> :text_emb)) as similarity
+                FROM clothing_items
+                WHERE user_id = :user_id
+                AND category::int BETWEEN :start AND :end
+            )
+            SELECT id, image_url, category, similarity, embedding,
+            (similarity * (1.0 / GREATEST(1.0, 5.0 - last_worn_days))) as final_rank_score   
+            FROM scored_items
+            ORDER BY final_rank_score DESC
             LIMIT 5
         """)
         

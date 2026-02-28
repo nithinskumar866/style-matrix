@@ -105,7 +105,7 @@ export default function OutfitIdeas() {
                 
                 <div className="grid grid-cols-2 gap-1 p-1">
                   {['top', 'bottom'].map((slot) => (
-                    <div key={slot} className="relative aspect-[3/4] overflow-hidden bg-black/20">
+                    <div key={slot} className="relative aspect-3/4 overflow-hidden bg-black/20">
                       <img 
                         src={result.outfit[slot]?.url} 
                         className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" 
