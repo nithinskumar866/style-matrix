@@ -33,7 +33,7 @@ class ClothingItem(Base):
     user_id = Column(Integer, ForeignKey("users.id"))   # INTEGER FK
     user = relationship("User", back_populates="clothing_items")
 
-    embedding = Column(Vector)
+    embedding = Column(Vector(512))
 
 
 class Feedback(Base):

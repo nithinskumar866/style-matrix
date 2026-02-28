@@ -1,8 +1,8 @@
-import React, { useState, useRef } from "react";
-import { supabase } from "@/lib/supabaseClient";
 import { useAppContext } from "@/context/AppContext";
-import { motion, AnimatePresence } from "framer-motion";
-import { UploadCloud, FileImage, X, Loader2 } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
+import { AnimatePresence, motion } from "framer-motion";
+import { FileImage, Loader2, UploadCloud, X } from "lucide-react";
+import React, { useRef, useState } from "react";
 
 export default function ImageUpload() {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);

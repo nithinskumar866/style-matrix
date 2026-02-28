@@ -1,13 +1,11 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from app.services import generate_candidates, rank_candidates
+from app.services import get_current_user, suggest_outfit_from_text
 from app.database import get_db
-from app.crud import get_user_items
+from app.models import User
 router = APIRouter()
 
-@router.get("/recommend/{user_id}")
-def get_recommendation(user_id: str, db: Session = Depends(get_db)):
-    items = get_user_items(db, user_id=user_id)
-    candidates = generate_candidates(items)
-    ranked = rank_candidates(items)
-    return {"recommendations": ranked[:5]}
+@router.get("/recommend")
+def get_recommendation(db: Session = Depends(get_db), prompt: str = "", user: str  = Depends(get_current_user)):
+    outfits = suggest_outfit_from_text(prompt=prompt, user_id=user, db=db)
+    return {"recommendations": outfits, "status_code": 200}
