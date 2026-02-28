@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 from app.crud import add_clothing_item
 from app.schemas.clothing_schema import ClothingCreate, ClothingResponse, ImageAddRequest
 from app.database import get_db
@@ -42,6 +43,24 @@ def add_item(req: ImageAddRequest, db: Session = Depends(get_db), user_id = Depe
     return {"response":"Images created", "status_code": 200}
 
 @router.get("/items")
-def get_all_items(db: Session = Depends(get_db), user_id = Depends(get_current_user)):
+def get_all_items(db: Session = Depends(get_db), user_id = Depends(get_current_user), count: int = 10):
     user = get_user(db, user_id=user_id)
-    return db.query(ClothingItem).filter(ClothingItem.user_id == user.id).all()
+    print(user.id)
+    query = text("""
+            SELECT *
+            FROM clothing_items 
+            WHERE user_id = :user_id
+            LIMIT :count
+        """)
+    results = db.execute(
+        query, 
+        {
+            "count": count,
+            "user_id": user.id 
+        }
+    ).fetchall()
+
+    return {"results": [{
+        "image_url": image.image_url, 
+        "category": image.category}
+        for image in results], "status_code": 200}

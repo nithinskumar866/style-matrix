@@ -190,8 +190,6 @@ def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
     local_embeddings_cache = {} # This will store the vectors for the scorer
     print("Text dim:", len(text_vector))
 
-    row = db.execute(text("SELECT embedding FROM clothing_items LIMIT 1")).fetchone()
-    print("DB dim:", len(row.embedding))
     slotMapping = {
         "top": (1, 20),
         "bottom": (21, 36),
@@ -205,7 +203,7 @@ def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
             WHERE user_id = :user_id
             AND category::int between :start and :end
             ORDER BY embedding <=> :text_emb 
-            LIMIT 10
+            LIMIT 5
         """)
         
         results = db.execute(query, {

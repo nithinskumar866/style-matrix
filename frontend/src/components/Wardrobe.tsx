@@ -91,8 +91,8 @@
 // }
 
 
-import { useEffect, useState } from "react";
 import { useAppContext } from "@/context/AppContext";
+import { useEffect, useState } from "react";
 
 export default function Wardrobe() {
   const [images, setImages] = useState<any[]>([]);
@@ -102,7 +102,7 @@ export default function Wardrobe() {
   useEffect(() => {
     const fetchWardrobe = async () => {
       try {
-        const response = await fetch(`${BACKEND_URL}/api/wardrobe/items`, {
+        const response = await fetch(`${BACKEND_URL}/api/wardrobe/items?count=25`, {
           headers: {
             "Authorization": `Bearer ${session?.access_token}`
           }
@@ -110,7 +110,7 @@ export default function Wardrobe() {
         
         if (!response.ok) throw new Error("Failed to fetch");
         const data = await response.json();
-        setImages(data || []); // Adjust based on your FastAPI return schema
+        setImages(data?.results || []);
       } catch (err) {
         console.error("Fetch error:", err);
       } finally {
@@ -128,10 +128,10 @@ export default function Wardrobe() {
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-6">
-      {images.map((item, index) => (
+      {images && images.map((item, index) => (
         <div key={index} className="rounded-lg overflow-hidden shadow-sm border border-gray-200 bg-white">
           <img
-            src={item.url} // Using the direct Supabase URL
+            src={item.image_url} // Using the direct Supabase URL
             alt="Clothing item"
             className="w-full h-48 object-cover"
           />
