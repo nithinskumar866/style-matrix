@@ -40,3 +40,8 @@ def add_item(req: ImageAddRequest, db: Session = Depends(get_db), user_id = Depe
     db.commit()
     
     return {"response":"Images created", "status_code": 200}
+
+@router.get("/items")
+def get_all_items(db: Session = Depends(get_db), user_id = Depends(get_current_user)):
+    user = get_user(db, user_id=user_id)
+    return db.query(ClothingItem).filter(ClothingItem.user_id == user.id).all()

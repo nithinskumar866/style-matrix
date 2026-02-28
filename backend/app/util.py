@@ -14,6 +14,16 @@ clip_processor = CLIPProcessor.from_pretrained(clip_model_id)
 clip_model = CLIPModel.from_pretrained(clip_model_id).to(DEVICE)
 clip_model.eval()
 
+def parse_pgvector(vec):
+    if isinstance(vec, str):
+        vec = vec.strip("[]")
+        return [float(x) for x in vec.split(",")]
+    return vec
+
+# Convert list to pgvector array literal
+def vector_to_pgvector(vec):
+    return "[" + ",".join(map(str, vec)) + "]"
+
 def predict_category(image):
     model = load_model()
     # 2. Apply the same transforms used during training

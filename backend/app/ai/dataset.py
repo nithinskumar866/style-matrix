@@ -20,7 +20,6 @@ def load_data(split_type = "train"):
     
     df = cat_df.merge(split_df, on="image_path")
     df = df[df["split"] == split_type]
-    print(df)
     
     # if MAX_IMAGES_PER_CLASS:
     #     df = pd.concat([
