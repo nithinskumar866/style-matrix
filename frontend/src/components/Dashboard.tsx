@@ -1,100 +1,119 @@
-// import { useState } from "react";
-// import { supabase } from "../lib/supabaseClient";
-import ImageUpload from "./ImageUpload";
+import { useState, useEffect } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { LayoutGrid, Camera, Sparkles, Settings, User } from "lucide-react";
+import { supabase } from "../lib/supabaseClient";
+
+// Import your page components
 import Wardrobe from "./Wardrobe";
 import OutfitIdeas from "./OutfitIdeas";
-import Settings from "./Settings";
-import { useState, useEffect } from "react";
-import { supabase } from "../lib/supabaseClient";
-import { useNavigate } from "react-router-dom";
+import SettingsPage from "./Settings";
+import ImageUpload from "./ImageUpload"; // We will create the new version of this next
 
+// --- Main Dashboard Component ---
 export default function Dashboard() {
-  const [activePage, setActivePage] = useState("dashboard");
-const [user, setUser] = useState<any>(null);
+  const [activePage, setActivePage] = useState("Wardrobe");
 
-useEffect(() => {
-  const getUser = async () => {
-    const { data } = await supabase.auth.getUser();
-    setUser(data.user);
-  };
-
-  getUser();
-}, []);
   return (
-    <div className="min-h-screen bg-gray-100 flex">
-
-      {/* Sidebar */}
-      <div className="w-60 bg-white shadow-md p-6 flex flex-col justify-between">
-        <div>
-          <h2 className="text-xl font-semibold mb-8">Style Matrix</h2>
-
-          <nav className="space-y-4">
-            <button onClick={() => setActivePage("dashboard")} className="block w-full text-left">Dashboard</button>
-            <button onClick={() => setActivePage("closet")} className="block w-full text-left">My Closet</button>
-            <button onClick={() => setActivePage("outfits")} className="block w-full text-left">Outfit Ideas</button>
-            <button onClick={() => setActivePage("settings")} className="block w-full text-left">Settings</button>
-          </nav>
-        </div>
-
-        {/* Profile Section */}
-        <div className="flex items-center gap-3">
-          <img
-            src={
-                user?.user_metadata?.avatar_url ||
-                `https://api.dicebear.com/7.x/initials/svg?seed=${user?.email}`
-            }
-            className="rounded-full w-10 h-10"
-            />
-          <div>
-            <p className="text-sm font-medium">Signed in by </p>
-            <p className="text-xs text-gray-500">  
-                {user?.email || "Loading..."}
-            </p>
-          </div>
-        </div>
+    <div className="min-h-screen bg-slate-950 text-white font-sans">
+      {/* Subtle background pattern for glass effect */}
+      <div className="fixed inset-0 z-0 opacity-50">
+        <div className="absolute inset-0 bg-linear-to-br from-indigo-950 via-slate-950 to-rose-950"></div>
       </div>
+      
+      <Sidebar activePage={activePage} setActivePage={setActivePage} />
 
-      {/* Main Content */}
-      <div className="flex-1 p-8 relative">
-
-        {/* Search Bar */}
-        <div className="flex justify-between items-center mb-8">
-          <input
-            type="text"
-            placeholder="Search your wardrobe..."
-            className="w-1/2 px-4 py-2 border rounded"
-          />
-
-          <button
-            onClick={() => setActivePage("upload")}
-            className="px-4 py-2 bg-blue-500 text-white rounded"
+      <main className="pl-72 pt-8 pr-8">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activePage}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3 }}
           >
-            Add New Item
-          </button>
-        </div>
-
-        {/* Page Content */}
-        {activePage === "dashboard" && (
-          <div className="text-gray-600">Welcome to your wardrobe dashboard.</div>
-        )}
-
-        {activePage === "closet" && <Wardrobe />}
-
-        {activePage === "upload" && <ImageUpload />}
-
-        {activePage === "outfits" && <OutfitIdeas />}
-
-        {activePage === "settings" && <Settings />}
-
-        {/* Floating + Button */}
-        <button
-          onClick={() => setActivePage("upload")}
-          className="fixed bottom-8 right-8 bg-blue-600 text-white w-14 h-14 rounded-full text-3xl shadow-lg"
-        >
-          +
-        </button>
-      </div>
+            {renderPage(activePage)}
+          </motion.div>
+        </AnimatePresence>
+      </main>
     </div>
   );
-  
 }
+
+// --- Sidebar Component ---
+const Sidebar = ({ activePage, setActivePage }: { activePage: string, setActivePage: (page: string) => void }) => {
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUser(data.user));
+  }, []);
+
+  const navItems = [
+    { name: "Wardrobe", icon: LayoutGrid },
+    { name: "Upload", icon: Camera },
+    { name: "Outfit Ideas", icon: Sparkles },
+    { name: "Settings", icon: Settings },
+  ];
+
+  return (
+    <motion.aside 
+      initial={{ x: '-100%', opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      transition={{ duration: 0.5, ease: "easeInOut" }}
+      className="fixed top-4 bottom-4 left-4 w-64 p-6 rounded-2xl flex flex-col
+                 bg-black/30 backdrop-blur-xl border border-white/10 shadow-2xl"
+    >
+      <h1 className="text-2xl font-bold tracking-tighter mb-12">Style Matrix</h1>
+      
+      <nav className="grow">
+        <ul className="space-y-3">
+          {navItems.map((item) => (
+            <li key={item.name}>
+              <button
+                onClick={() => setActivePage(item.name)}
+                className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium
+                           text-gray-300 hover:text-white transition-colors relative"
+              >
+                {activePage === item.name && (
+                  <motion.div
+                    layoutId="active-pill"
+                    className="absolute inset-0 bg-white/10 rounded-lg"
+                    style={{ borderRadius: 12 }}
+                    transition={{ duration: 0.5, type: "spring" }}
+                  />
+                )}
+                <item.icon className="w-5 h-5 z-10" />
+                <span className="z-10">{item.name}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+      <div className="flex items-center gap-3 pt-6 border-t border-white/10">
+        <div className="w-10 h-10 rounded-full bg-black/50 flex items-center justify-center border border-white/10">
+          <User className="w-5 h-5 text-gray-400" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold">{user?.email || "..."}</p>
+          <p className="text-xs text-gray-400">Pro Member</p>
+        </div>
+      </div>
+    </motion.aside>
+  );
+};
+
+// --- Helper to render the correct page ---
+const renderPage = (pageName: string) => {
+  switch (pageName) {
+    case "Wardrobe":
+      return <Wardrobe />;
+    case "Upload":
+      return <ImageUpload />;
+    case "Outfit Ideas":
+      return <OutfitIdeas />;
+    case "Settings":
+      return <SettingsPage />;
+    default:
+      return <Wardrobe />;
+  }
+};
