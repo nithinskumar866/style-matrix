@@ -56,6 +56,9 @@ def get_clip_embedding(image):
     else:
         image_tensor = outputs                 # fallback if raw tensor
 
+    # Normalize, because the compatibility model was trained on unit vectors
+    image_tensor = image_tensor / image_tensor.norm(dim=-1, keepdim=True)
+
     # Convert to list
     return image_tensor.cpu().flatten().tolist()
     # return image_tensor.squeeze().tolist()

@@ -2,6 +2,7 @@ from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt
 import os
+import re
 import requests
 from jose.exceptions import JWTError, ExpiredSignatureError
 from sqlalchemy.orm import Session
@@ -21,6 +22,9 @@ compatibility_model.eval()  # important for inference
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(BASE_DIR, "..", "data", "polyvore")
+compatibility_model.load_state_dict(
+    torch.load(os.path.join(data_path, "compatibility_model.pth"), map_location=DEVICE, weights_only=True)
+)
 CLIP_MODEL_ID = "patrickjohncyh/fashion-clip"
 processor = CLIPProcessor.from_pretrained(CLIP_MODEL_ID)
 clip_model = CLIPModel.from_pretrained(CLIP_MODEL_ID).to(DEVICE)
@@ -102,6 +106,18 @@ def generate_candidates(items):
 
     return candidates
 
+# How much the text prompt counts in an outfit's score, next to compatibility
+PROMPT_WEIGHT = 0.4
+# Text-to-image similarity rarely exceeds this, so treat it as a full prompt match
+MAX_PROMPT_SIMILARITY = 0.4
+
+def to_unit_tensor(embedding):
+    tensor = torch.tensor(embedding).view(1, -1).float().to(DEVICE)
+    return tensor / tensor.norm(dim=-1, keepdim=True)
+
+def prompt_score(item):
+    return max(0.0, min(float(item.similarity) / MAX_PROMPT_SIMILARITY, 1.0))
+
 def get_top_compatible_outfits(outfit_candidates, model, embeddings_cache):
     combinations = []
 
@@ -117,12 +133,17 @@ def get_top_compatible_outfits(outfit_candidates, model, embeddings_cache):
         if e_top is None or e_bottom is None:
             continue
 
-        t_top = torch.tensor(e_top).view(1, -1).float().to(DEVICE)
-        t_bottom = torch.tensor(e_bottom).view(1, -1).float().to(DEVICE)
+        t_top = to_unit_tensor(e_top)
+        t_bottom = to_unit_tensor(e_bottom)
 
+        # The model was trained on pairs in both orders, so average them
         with torch.no_grad():
-            score_tb = model(t_top, t_bottom).item()
-        
+            compatibility = (model(t_top, t_bottom).item() + model(t_bottom, t_top).item()) / 2
+
+        prompt = (prompt_score(top) + prompt_score(bottom)) / 2
+        freshness = min(float(top.freshness), float(bottom.freshness))
+        score_tb = ((1 - PROMPT_WEIGHT) * compatibility + PROMPT_WEIGHT * prompt) * freshness
+
         combinations.append({
             "score": score_tb,
             "outfit": {
@@ -137,10 +158,8 @@ def get_top_compatible_outfits(outfit_candidates, model, embeddings_cache):
         if e_full is None:
             continue
 
-        t_full = torch.tensor(e_full).view(1, -1).float().to(DEVICE)
-
-        with torch.no_grad():
-            score_full = model(t_full, t_full).item()  # score against itself or just use vector norm
+        # A single piece has nothing to pair with, so only the prompt and freshness apply
+        score_full = prompt_score(full) * float(full.freshness)
 
         combinations.append({
             "score": score_full,
@@ -181,7 +200,7 @@ def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
 
     # 2. Get Candidates
     full_body_keywords = ["dress", "jumpsuit", "romper", "onesie", "kaftan", "sundress"]
-    if any(word in prompt.lower() for word in full_body_keywords):
+    if re.search(r"\b(" + "|".join(full_body_keywords) + r")(es|s)?\b", prompt.lower()):
         slots = ["full"]
     else:
         slots = ["top", "bottom"]
@@ -190,9 +209,9 @@ def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
     print("Text dim:", len(text_vector))
 
     slotMapping = {
-        "top": (1, 20),
-        "bottom": (21, 36),
-        "full": (36, 50),
+        "top": (0, 19),
+        "bottom": (20, 35),
+        "full": (36, 49),
     }
     for slot in slots:
         # Note: Added category filter back in so 'top' doesn't return 'shoes'
@@ -210,7 +229,8 @@ def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
                 AND category::int BETWEEN :start AND :end
             )
             SELECT id, image_url, category, similarity, embedding,
-            (similarity * (1.0 / GREATEST(1.0, 5.0 - last_worn_days))) as final_rank_score   
+            (1.0 / GREATEST(1.0, 5.0 - last_worn_days)) as freshness,
+            (GREATEST(similarity, 0) * (1.0 / GREATEST(1.0, 5.0 - last_worn_days))) as final_rank_score
             FROM scored_items
             ORDER BY final_rank_score DESC
             LIMIT 5 
