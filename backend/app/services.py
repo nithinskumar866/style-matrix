@@ -141,8 +141,7 @@ def get_top_compatible_outfits(outfit_candidates, model, embeddings_cache):
             compatibility = (model(t_top, t_bottom).item() + model(t_bottom, t_top).item()) / 2
 
         prompt = (prompt_score(top) + prompt_score(bottom)) / 2
-        freshness = min(float(top.freshness), float(bottom.freshness))
-        score_tb = ((1 - PROMPT_WEIGHT) * compatibility + PROMPT_WEIGHT * prompt) * freshness
+        score_tb = (1 - PROMPT_WEIGHT) * compatibility + PROMPT_WEIGHT * prompt
 
         combinations.append({
             "score": score_tb,
@@ -158,8 +157,8 @@ def get_top_compatible_outfits(outfit_candidates, model, embeddings_cache):
         if e_full is None:
             continue
 
-        # A single piece has nothing to pair with, so only the prompt and freshness apply
-        score_full = prompt_score(full) * float(full.freshness)
+        # A single piece has nothing to pair with, so only the prompt applies
+        score_full = prompt_score(full)
 
         combinations.append({
             "score": score_full,
@@ -216,24 +215,19 @@ def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
     for slot in slots:
         # Note: Added category filter back in so 'top' doesn't return 'shoes'
         query = text("""
-            WITH scored_items AS(
-                SELECT 
-                    id,
-                    image_url, 
-                    category, 
-                    embedding, 
-                    COALESCE(EXTRACT(DAY FROM (NOW() - last_worn_date)), 100) as last_worn_days, 
-                    (1 - (embedding <=> :text_emb)) as similarity
-                FROM clothing_items
-                WHERE user_id = :user_id
-                AND category::int BETWEEN :start AND :end
-            )
-            SELECT id, image_url, category, similarity, embedding,
-            (1.0 / GREATEST(1.0, 5.0 - last_worn_days)) as freshness,
-            (GREATEST(similarity, 0) * (1.0 / GREATEST(1.0, 5.0 - last_worn_days))) as final_rank_score
-            FROM scored_items
-            ORDER BY final_rank_score DESC
-            LIMIT 5 
+            SELECT
+                id,
+                image_url,
+                category,
+                embedding,
+                (1 - (embedding <=> :text_emb)) as similarity
+            FROM clothing_items
+            WHERE user_id = :user_id
+            AND category::int BETWEEN :start AND :end
+            -- Items in the wash stay out of suggestions, matching the wardrobe page
+            AND (last_worn_date IS NULL OR last_worn_date <= NOW() - INTERVAL '5 days')
+            ORDER BY similarity DESC
+            LIMIT 5
         """)
         
         results = db.execute(query, {
