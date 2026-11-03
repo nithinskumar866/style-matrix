@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, concurrency
+from fastapi import APIRouter, Depends, HTTPException, concurrency
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.crud import add_clothing_item
@@ -16,13 +16,41 @@ from io import BytesIO
 from datetime import date
 import asyncio
 import httpx
+import os
+from urllib.parse import urlsplit, unquote
 
 
 router = APIRouter()
 
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+
+def is_allowed_image_url(url: str) -> bool:
+    # Only fetch images from our own Supabase public storage
+    allowed = urlsplit(SUPABASE_URL)
+    parts = urlsplit(url)
+    return (
+        bool(allowed.netloc)
+        and parts.scheme == allowed.scheme
+        and parts.netloc == allowed.netloc
+        and parts.path.startswith("/storage/v1/object/public/")
+        and ".." not in unquote(parts.path)
+    )
+
 @router.post("/wear-today")
 def wear_today(req: WearTodayRequest ,db: Session = Depends(get_db), user_id = Depends(get_current_user)):
     user = get_user(db=db, user_id=user_id)
+    if not req.item_ids:
+        raise HTTPException(status_code=400, detail="No items provided")
+
+    owned_ids = {
+        row.id for row in db.query(ClothingItem.id).filter(
+            ClothingItem.id.in_(req.item_ids),
+            ClothingItem.user_id == user.id,
+        )
+    }
+    if owned_ids != set(req.item_ids):
+        raise HTTPException(status_code=404, detail="Item not found")
+
     today = date.today()
     updates = [
         {
@@ -57,6 +85,8 @@ async def process_single_url(url, user_db_id):
 @router.post("/add-clothing")
 async def add_item(req: ImageAddRequest, db: Session = Depends(get_db), user_id = Depends(get_current_user)):
     urls = req.imageUrls
+    if not all(is_allowed_image_url(url) for url in urls):
+        raise HTTPException(status_code=400, detail="Image URL not allowed")
     user_id = (await concurrency.run_in_threadpool(get_user, db=db, user_id=user_id)).id
     tasks = [process_single_url(url, user_db_id=user_id) for url in urls]
     

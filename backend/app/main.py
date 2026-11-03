@@ -11,6 +11,7 @@
 # app.include_router(user_routes.router, prefix="/user_routes", tags=["user_routes"])
 
 
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .database import Base, engine
@@ -18,11 +19,17 @@ from .routes import wardrobe_routes, recommendation_routes, feedback_routes, use
 
 app = FastAPI(title="Style Matrix API")
 
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
+    if origin.strip()
+]
+
 # 1. ADD CORS MIDDLEWARE
 # This allows your React frontend (port 5173) to talk to your FastAPI backend (port 8000)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173","http://127.0.0.1:5173"], 
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
