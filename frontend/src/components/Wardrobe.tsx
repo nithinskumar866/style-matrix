@@ -1,101 +1,10 @@
-// import { useEffect, useState } from "react";
-
-// export default function Wardrobe() {
-//   const [images, setImages] = useState<string[]>([]);
-
-//   useEffect(() => {
-//     fetch("http://127.0.0.1:8000/images")
-//       .then((res) => res.json())
-//       .then((data) => setImages(data.images))
-//       .catch((err) => console.error(err));
-//   }, []);
-
-//   return (
-//     <div className="grid grid-cols-3 gap-4">
-//       {images.map((img, index) => (
-//         <img
-//           key={index}
-//           src={`http://127.0.0.1:8000/uploads/${img}`}
-//           className="w-full h-40 object-cover"
-//         />
-//       ))}
-//     </div>
-//   );
-// }
-
-
-
-
-
-// import { useEffect, useState } from "react";
-
-// export default function Wardrobe() {
-//   const [images, setImages] = useState<string[]>([]);
-
-//   useEffect(() => {
-//     fetch("http://127.0.0.1:8000/images")
-//       .then((res) => res.json())
-//       .then((data) => setImages(data.images))
-//       .catch((err) => console.error(err));
-//   }, []);
-
-//   return (
-//     <div className="grid grid-cols-4 gap-4">
-//       {images.map((img, index) => (
-//         <img
-//           key={index}
-//           src={`http://127.0.0.1:8000/uploads/${img}`}
-//           className="w-full h-40 object-cover rounded"
-//         />
-//       ))}
-//     </div>
-//   );
-// }
-
-
-
-
-
-
-// import { useEffect, useState } from "react";
-
-// export default function Wardrobe() {
-//   const [images, setImages] = useState<any[]>([]);
-
-  
-//   useEffect(() => {
-//     fetch("http://127.0.0.1:8000/items")
-//       .then((res) => res.json())
-//       .then((data) => {
-//         setImages(data);
-//       })
-//       .catch((err) => console.error("Fetch error:", err));
-//   }, []);
-
-//   return (
-//     <div className="grid grid-cols-4 gap-4">
-//       {images.map((item, index) => (
-//         <div key={index} className="border p-2 rounded">
-//           <img
-//             src={item.image_url}
-//             alt="clothing"
-//             className="w-full h-40 object-cover rounded"
-//           />
-//           <p className="text-sm mt-2 text-center">
-//             Category: {item.category}
-//           </p>
-//         </div>
-//       ))}
-//     </div>
-//   );
-// }
-
-
 import { useAppContext } from "@/context/AppContext";
+import { getCategoryName } from "@/lib/categories";
+import type { ClothingItem } from "@/types";
 import { useEffect, useState } from "react";
 
 export default function Wardrobe() {
-  const [images, setImages] = useState<any[]>([]);
+  const [images, setImages] = useState<ClothingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"available" | "laundry">("available");
   const [error, setError] = useState("");
@@ -130,9 +39,9 @@ export default function Wardrobe() {
     if (session) {
       fetchWardrobe();
     }
-  }, [session, BACKEND_URL]);
+  }, [session, BACKEND_URL, logout]);
 
-  // --- 3-Day Cooldown Math ---
+  // --- 5-Day Cooldown Math ---
   const now = new Date();
   
   const availableItems = images.filter(item => {
@@ -174,15 +83,15 @@ export default function Wardrobe() {
         </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-6">
-          {displayItems.map((item, index) => (
-            <div key={index} className={`rounded-lg overflow-hidden shadow-sm border border-gray-200 bg-white relative ${activeTab === 'laundry' ? 'opacity-60 grayscale' : ''}`}>
+          {displayItems.map((item) => (
+            <div key={item.id} className={`rounded-lg overflow-hidden shadow-sm border border-gray-200 bg-white relative ${activeTab === 'laundry' ? 'opacity-60 grayscale' : ''}`}>
               <img
                 src={item.image_url} 
-                alt="Clothing item"
-                className="w-full h-48 object-cover"
+                alt={getCategoryName(item.category)}
+                className="w-full h-48 object-contain"
               />
               <div className="p-3 text-sm text-gray-700 font-medium border-t border-gray-100">
-                Category: {item.category} 
+                {getCategoryName(item.category)}
               </div>
               
               {/* Red Timestamp overlay for laundry items */}

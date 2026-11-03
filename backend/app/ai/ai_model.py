@@ -8,17 +8,18 @@ def load_model():
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
     model_path = os.path.join(BASE_DIR, "fashion_resnet50.pth")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = FashionModel()
-    state_dict = torch.load(model_path, map_location=device)
+    # The saved weights replace the backbone's, so skip the ImageNet download
+    model = FashionModel(pretrained=False)
+    state_dict = torch.load(model_path, map_location=device, weights_only=True)
     model.load_state_dict(state_dict)
     model.to(device=device)
     model.eval()
     return model    
 
 class FashionModel(nn.Module):
-    def __init__(self):
+    def __init__(self, pretrained=True):
         super().__init__()
-        backbone = models.resnet50(weights="IMAGENET1K_V2")
+        backbone = models.resnet50(weights="IMAGENET1K_V2" if pretrained else None)
         self.features = nn.Sequential(*list(backbone.children())[:-1])
         self.classifier = nn.Linear(2048, NUM_CLASSES)
     

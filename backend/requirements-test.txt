@@ -1,0 +1,12 @@
+# Enough to run the tests, which stub out the AI models.
+fastapi==0.115.0
+python-dotenv==1.0.1
+psycopg[binary]
+SQLAlchemy==2.0.35
+pydantic==2.9.2
+pgvector==0.5.1
+alembic==1.20.1
+pillow==10.4.0
+httpx
+numpy==1.26.4
+pytest

@@ -4,13 +4,20 @@ import {
   createContext,
   useContext,
   useEffect,
+  useCallback,
   useState,
   type ReactNode,
 } from "react";
 import { useNavigate as useNavigateRouter } from "react-router-dom";
-//import { BrowserRouter } from "react-router-dom";
 
-type UserProfile = any;
+interface UserProfile {
+  id: string;
+  gender: string | null;
+  body_type: string | null;
+  height: number | null;
+  weight: number | null;
+  skin_tone: string | null;
+}
 
 const useNavigate = useNavigateRouter;
 interface AppContextType {
@@ -21,7 +28,7 @@ interface AppContextType {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   getUserDetails: (session: Session) => Promise<void>;
-  signup: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string, name: string) => Promise<void>;
   BACKEND_URL: string;
   userProfile: UserProfile | null;
 }
@@ -68,10 +75,16 @@ export const AppContextProvider = ({ children }: AppContextProviderProps) => {
     );
 
     return () => listener?.subscription?.unsubscribe();
+    // Subscribe once on startup, not again each time these functions are recreated
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const signup = async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signUp({ email, password }); 
+  const signup = async (email: string, password: string, name: string) => {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { name } },
+    });
 
     if (error) throw error;
     // With email confirmation on, there is no session until the link is clicked
@@ -93,12 +106,13 @@ export const AppContextProvider = ({ children }: AppContextProviderProps) => {
     navigate("/");
   };
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     await supabase.auth.signOut();
-    configureSessionUserData(null);
-  };
+    setSession(null);
+    setUser(null);
+  }, []);
 
-  const getUserDetails = async (session: any) => {
+  const getUserDetails = async (session: Session) => {
     if (!session) {
       navigate("/login");
       return;
@@ -123,12 +137,11 @@ export const AppContextProvider = ({ children }: AppContextProviderProps) => {
       if (!httpResponse.ok) throw new Error("Something went wrong");
 
       const responseData = await httpResponse.json();
-      setUserProfile(responseData?.data);
+      setUserProfile(responseData);
     } catch (error) {
       console.error("Failed to fetch user details:", error);
     }
   };
-  // const navigate = useNavigate()
 
   return (
     <AppContext.Provider

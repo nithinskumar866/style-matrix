@@ -50,3 +50,17 @@ npm run dev
 ```
 
 Open http://localhost:5173. The backend only accepts requests from port 5173 by default.
+
+## Tests
+
+The backend tests stub out the AI models, but they need a PostgreSQL database with pgvector. They empty its tables, so use a throwaway database and never your real one:
+
+```bash
+cd backend
+pip install -r requirements-test.txt
+export DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:5432/THROWAWAY_DATABASE
+alembic upgrade head
+python -m pytest tests
+```
+
+For the frontend, run `npm run lint` and `npm run build`. CI runs all of these on every pull request.

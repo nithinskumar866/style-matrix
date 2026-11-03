@@ -1,9 +1,10 @@
 import { useAppContext } from "@/context/AppContext";
+import type { Outfit, OutfitSlot, Recommendation } from "@/types";
 import { useState } from "react";
 
 export default function OutfitIdeas() {
   const [query, setQuery] = useState("");
-  const [recommendations, setRecommendations] = useState<any[]>([]);
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(false);
   const [markingAsWorn, setMarkingAsWorn] = useState<number | null>(null);
   const [message, setMessage] = useState("");
@@ -38,7 +39,7 @@ export default function OutfitIdeas() {
     }
   };
 
-  const handleWearToday = async (index: number, outfit: any) => {
+  const handleWearToday = async (index: number, outfit: Outfit) => {
     setMarkingAsWorn(index);
     try {
       // Extract IDs for both items in the outfit
@@ -117,7 +118,7 @@ export default function OutfitIdeas() {
                 </div>
                 
                 <div className={`grid gap-1 p-1 ${result.outfit.fullbody ? "grid-cols-1" : "grid-cols-2"}`}>
-                  {Object.keys(result.outfit).map((slot) => (
+                  {(Object.keys(result.outfit) as OutfitSlot[]).map((slot) => (
                     <div key={slot} className="relative aspect-3/4 overflow-hidden bg-black/20">
                       <img 
                         src={result.outfit[slot]?.url} 

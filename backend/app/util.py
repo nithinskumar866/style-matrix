@@ -1,13 +1,11 @@
 import torch
-import io
-import requests
-from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
-from app.ai.transforms import train_transform # Assuming this exists in your transforms.py
+from app.ai.transforms import val_transform
 from .ai.ai_model import load_model
 from .ai.config import DEVICE
 
-# Load your model once to keep it in memory
+# Load the models once to keep them in memory
+category_model = load_model()
 
 clip_model_id = "patrickjohncyh/fashion-clip"
 clip_processor = CLIPProcessor.from_pretrained(clip_model_id)
@@ -25,14 +23,12 @@ def vector_to_pgvector(vec):
     return "[" + ",".join(map(str, vec)) + "]"
 
 def predict_category(image):
-    model = load_model()
-    # 2. Apply the same transforms used during training
-    transform = train_transform
-    image_tensor = transform(image).unsqueeze(0).to(DEVICE)
-    
-    # 3. Run ResNet Prediction
+    # Use the evaluation transform, because the training one flips images at random
+    image_tensor = val_transform(image).unsqueeze(0).to(DEVICE)
+
+    # Run ResNet Prediction
     with torch.no_grad():
-        outputs, _ = model(image_tensor)
+        outputs, _ = category_model(image_tensor)
         _, predicted = torch.max(outputs, 1)
         
     # Return the category index or label

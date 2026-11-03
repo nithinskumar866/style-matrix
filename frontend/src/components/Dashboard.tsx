@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Camera, LayoutGrid, Settings, Sparkles, User } from "lucide-react";
+import type { User as AuthUser } from "@supabase/supabase-js";
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 
@@ -14,7 +15,7 @@ export default function Dashboard() {
   const [activePage, setActivePage] = useState("Wardrobe");
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white font-sans">
+    <div className="dark min-h-screen bg-slate-950 text-white font-sans">
       {/* Subtle background pattern for glass effect */}
       <div className="fixed inset-0 z-0 opacity-50">
         <div className="absolute inset-0 from-indigo-950 via-slate-950 to-rose-950"></div>
@@ -41,7 +42,7 @@ export default function Dashboard() {
 
 // --- Sidebar Component ---
 const Sidebar = ({ activePage, setActivePage }: { activePage: string, setActivePage: (page: string) => void }) => {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUser(data.user));
@@ -93,10 +94,7 @@ const Sidebar = ({ activePage, setActivePage }: { activePage: string, setActiveP
         <div className="w-10 h-10 rounded-full bg-black/50 flex items-center justify-center border border-white/10">
           <User className="w-5 h-5 text-gray-400" />
         </div>
-        <div>
-          <p className="text-sm font-semibold">{user?.email || "..."}</p>
-          <p className="text-xs text-gray-400">Pro Member</p>
-        </div>
+        <p className="text-sm font-semibold truncate">{user?.email || "..."}</p>
       </div>
     </motion.aside>
   );

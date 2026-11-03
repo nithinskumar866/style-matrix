@@ -2,8 +2,8 @@ from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt
 import os
-import re
 import requests
+import time
 from jose.exceptions import JWTError, ExpiredSignatureError
 from sqlalchemy.orm import Session
 from transformers import CLIPProcessor, CLIPModel 
@@ -12,6 +12,7 @@ from app.ai.config import DEVICE
 from sqlalchemy import text
 from app.crud import get_user
 from app.database import get_db
+from app.outfit_rules import SLOT_RANGES, slots_for_prompt
 from app.util import parse_pgvector , vector_to_pgvector
 from app.ai.recommendation.compatibility_model import CompatibilityModel
 from itertools import product
@@ -31,30 +32,43 @@ clip_model = CLIPModel.from_pretrained(CLIP_MODEL_ID).to(DEVICE)
 clip_model.eval()
 
 security = HTTPBearer()
-SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 
 JWKS_URL = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
-jwks = requests.get(JWKS_URL).json()
-algorithm = "ES256"
+JWKS_CACHE_SECONDS = 600
+# An unknown key ID can mean the keys were rotated, but limit refetches so
+# tokens with made-up key IDs can't trigger a request every time
+JWKS_MIN_REFETCH_SECONDS = 60
+jwks_cache = {"keys": [], "fetched_at": 0.0}
+
+def fetch_jwks():
+    response = requests.get(JWKS_URL, timeout=5)
+    response.raise_for_status()
+    keys = response.json().get("keys")
+    if not keys:
+        raise Exception("JWKS does not contain 'keys'")
+    jwks_cache["keys"] = keys
+    jwks_cache["fetched_at"] = time.monotonic()
+
+def find_key(kid):
+    return next((key for key in jwks_cache["keys"] if key["kid"] == kid), None)
 
 def get_public_key(token):
     header = jwt.get_unverified_header(token)
     kid = header.get("kid")
 
-    # Fetch JWKS
-    response = requests.get(JWKS_URL)
-    jwks = response.json()
-    keys = jwks.get("keys")
-    if not keys:
-        raise Exception("JWKS does not contain 'keys'")
+    age = time.monotonic() - jwks_cache["fetched_at"]
+    if not jwks_cache["keys"] or age > JWKS_CACHE_SECONDS:
+        fetch_jwks()
 
-    # Find matching key
-    for key in keys:
-        if key["kid"] == kid:
-            return key
+    key = find_key(kid)
+    if key is None and time.monotonic() - jwks_cache["fetched_at"] > JWKS_MIN_REFETCH_SECONDS:
+        fetch_jwks()
+        key = find_key(kid)
 
-    raise Exception("Public key not found")
+    if key is None:
+        raise Exception("Public key not found")
+    return key
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
@@ -73,38 +87,8 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         print("AUTH ERROR:", str(e))
         raise HTTPException(status_code=401, detail="Authentication failed")
 
-    except Exception as e: 
-        raise HTTPException(status_code=401, detail=f"invalid token {str(e)}")
     user_id = payload.get("sub")
     return user_id
-
-# replace with pytorch ai model 
-# - recommendation service 
-# - embedding service
-# - ranking service
-# - feedback service
-import random
-
-
-def rank_candidates(candidates):
-    scored = []
-    for c in candidates:
-        score = random.random()
-        scored.append({"outfit": c, "score": score})
-
-    scored.sort(key=lambda x: x["score"], reverse=True)
-    return scored
-
-def generate_candidates(items):
-    tops = [i for i in items if i.category == "top"]
-    bottoms = [i for i in items if i.category == "bottom"]
-
-    candidates = []
-    for t in tops:
-        for b in bottoms:
-            candidates.append([t.id, b.id])
-
-    return candidates
 
 # How much the text prompt counts in an outfit's score, next to compatibility
 PROMPT_WEIGHT = 0.4
@@ -173,8 +157,7 @@ def get_top_compatible_outfits(outfit_candidates, model, embeddings_cache):
 
 def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
     user = get_user(db, user_id)
-    print("user id", user.id)
-    
+
     # 1. Encode the text prompt
     text_inputs = processor(text=[prompt], return_tensors="pt", padding=True).to(DEVICE)
     
@@ -195,24 +178,11 @@ def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
     # Convert to list (NO flatten)
     text_vector = text_features[0].cpu().numpy().tolist()
 
-    print("Text dim:", len(text_vector))
-
     # 2. Get Candidates
-    full_body_keywords = ["dress", "jumpsuit", "romper", "onesie", "kaftan", "sundress"]
-    if re.search(r"\b(" + "|".join(full_body_keywords) + r")(es|s)?\b", prompt.lower()):
-        slots = ["full"]
-    else:
-        slots = ["top", "bottom"]
     outfit_candidates = {}
     local_embeddings_cache = {} # This will store the vectors for the scorer
-    print("Text dim:", len(text_vector))
 
-    slotMapping = {
-        "top": (0, 19),
-        "bottom": (20, 35),
-        "full": (36, 49),
-    }
-    for slot in slots:
+    for slot in slots_for_prompt(prompt):
         # Note: Added category filter back in so 'top' doesn't return 'shoes'
         query = text("""
             SELECT
@@ -233,8 +203,8 @@ def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
         results = db.execute(query, {
             "text_emb": vector_to_pgvector(text_vector), 
             "user_id": user.id,
-            "start": slotMapping[slot][0],
-            "end": slotMapping[slot][1],
+            "start": SLOT_RANGES[slot][0],
+            "end": SLOT_RANGES[slot][1],
         }).fetchall()
 
         outfit_candidates[slot] = results

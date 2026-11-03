@@ -82,9 +82,9 @@ export default function ImageUpload() {
         : "Successfully added to your wardrobe!");
       setSelectedFiles([]); // Clear out the list
       
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
-      setStatus(`Error: ${error.message}`);
+      setStatus(`Error: ${error instanceof Error ? error.message : "Upload failed"}`);
     } finally {
       setLoading(false);
     }
@@ -160,7 +160,7 @@ export default function ImageUpload() {
         <button
           onClick={handleSubmit}
           disabled={loading || selectedFiles.length === 0}
-          className="w-full flex items-center justify-center py-4 px-6 text-xs uppercase tracking-widest font-bold text-white bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:bg-zinc-300 dark:disabled:bg-zinc-800 disabled:text-zinc-500 transition-colors"
+          className="w-full flex items-center justify-center py-4 px-6 text-xs uppercase tracking-widest font-bold text-white bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:bg-zinc-300 dark:disabled:bg-zinc-800 disabled:text-zinc-500 dark:disabled:text-zinc-400 transition-colors"
         >
           {loading ? (
             <>

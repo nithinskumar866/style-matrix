@@ -1,14 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, concurrency
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from app.crud import add_clothing_item
 from app.schemas.clothing_schema import ImageAddRequest, WearTodayRequest
 from app.database import get_db
 from app.services import get_current_user
-from typing import List
 from app.util import predict_category, get_clip_embedding
 from app.crud import get_user
-import requests
 from sqlalchemy import insert
 from app.models import ClothingItem
 from PIL import Image
@@ -110,11 +107,12 @@ async def add_item(req: ImageAddRequest, db: Session = Depends(get_db), user_id 
 @router.get("/items")
 def get_all_items(db: Session = Depends(get_db), user_id = Depends(get_current_user), count: int = 10):
     user = get_user(db, user_id=user_id)
-    print(user.id)
+    # Embeddings are large and the frontend doesn't use them, so leave them out
     query = text("""
-            SELECT *
-            FROM clothing_items 
+            SELECT id, name, image_url, category, last_worn_date, score, user_id
+            FROM clothing_items
             WHERE user_id = :user_id
+            ORDER BY id DESC
             LIMIT :count
         """)
     results = db.execute(
