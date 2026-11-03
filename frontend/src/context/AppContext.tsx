@@ -74,6 +74,11 @@ export const AppContextProvider = ({ children }: AppContextProviderProps) => {
     const { data, error } = await supabase.auth.signUp({ email, password }); 
 
     if (error) throw error;
+    // With email confirmation on, there is no session until the link is clicked
+    if (!data.session) {
+      alert("Check your email to confirm your account, then sign in.");
+      return;
+    }
     configureSessionUserData(data.session);
     navigate("/");
   };

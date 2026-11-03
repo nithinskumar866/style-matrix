@@ -6,14 +6,16 @@ export default function OutfitIdeas() {
   const [recommendations, setRecommendations] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [markingAsWorn, setMarkingAsWorn] = useState<number | null>(null);
+  const [message, setMessage] = useState("");
   
   const { BACKEND_URL, session } = useAppContext();
 
   const getRecommendations = async () => {
     if (!query) return;
     setLoading(true);
+    setMessage("");
     try {
-      const response = await fetch(`${BACKEND_URL}/api/recommendation/recommend?prompt=${query}`, {
+      const response = await fetch(`${BACKEND_URL}/api/recommendation/recommend?prompt=${encodeURIComponent(query)}`, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -22,9 +24,15 @@ export default function OutfitIdeas() {
       });
       if (!response.ok) throw new Error("Failed to fetch recommendations");
       const data = await response.json();
-      setRecommendations(data.recommendations || []);
+      const results = data.recommendations || [];
+      setRecommendations(results);
+      if (results.length === 0) {
+        setMessage("No matching outfits yet. Add more clothes or try another prompt.");
+      }
     } catch (error) {
       console.error(error);
+      setRecommendations([]);
+      setMessage("Couldn't get suggestions. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -34,7 +42,7 @@ export default function OutfitIdeas() {
     setMarkingAsWorn(index);
     try {
       // Extract IDs for both items in the outfit
-      const itemIds = [outfit.top?.id, outfit.bottom?.id].filter(Boolean);
+      const itemIds = [outfit.top?.id, outfit.bottom?.id, outfit.fullbody?.id].filter(Boolean);
       
       const response = await fetch(`${BACKEND_URL}/api/wardrobe/wear-today`, {
         method: "POST",
@@ -49,9 +57,12 @@ export default function OutfitIdeas() {
         // Remove the outfit from the list or show a success state
         setRecommendations(prev => prev.filter((_, i) => i !== index));
         alert("Outfit logged! Your rotation scores have been updated.");
+      } else {
+        alert("Couldn't log this outfit. Please try again.");
       }
     } catch (error) {
       console.error("Error updating wear status:", error);
+      alert("Couldn't log this outfit. Please try again.");
     } finally {
       setMarkingAsWorn(null);
     }
@@ -82,6 +93,8 @@ export default function OutfitIdeas() {
         </div>
       </div>
 
+      {message && <p className="text-gray-400 px-2 pb-12">{message}</p>}
+
       {/* Recommendations Grid */}
       {recommendations.length > 0 && (
         <div className="space-y-8 pb-12">
@@ -103,8 +116,8 @@ export default function OutfitIdeas() {
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-1 p-1">
-                  {['top', 'bottom'].map((slot) => (
+                <div className={`grid gap-1 p-1 ${result.outfit.fullbody ? "grid-cols-1" : "grid-cols-2"}`}>
+                  {Object.keys(result.outfit).map((slot) => (
                     <div key={slot} className="relative aspect-3/4 overflow-hidden bg-black/20">
                       <img 
                         src={result.outfit[slot]?.url} 

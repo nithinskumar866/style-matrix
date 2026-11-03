@@ -98,7 +98,8 @@ export default function Wardrobe() {
   const [images, setImages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"available" | "laundry">("available");
-  const { BACKEND_URL, session } = useAppContext();
+  const [error, setError] = useState("");
+  const { BACKEND_URL, session, logout } = useAppContext();
 
   useEffect(() => {
     const fetchWardrobe = async () => {
@@ -109,11 +110,18 @@ export default function Wardrobe() {
           }
         });
         
+        // The session is no longer valid, so send the user back to login
+        if (response.status === 401) {
+          await logout();
+          return;
+        }
         if (!response.ok) throw new Error("Failed to fetch");
         const data = await response.json();
         setImages(data?.results || []);
+        setError("");
       } catch (err) {
         console.error("Fetch error:", err);
+        setError("Couldn't load your closet. Please try again.");
       } finally {
         setLoading(false);
       }
@@ -130,7 +138,7 @@ export default function Wardrobe() {
   const availableItems = images.filter(item => {
     if (!item.last_worn_date) return true; // Never worn = Available
     const diffDays = (now.getTime() - new Date(item.last_worn_date).getTime()) / (1000 * 3600 * 24);
-    return diffDays >= 3; 
+    return diffDays >= 5;
   });
 
   const laundryItems = images.filter(item => {
@@ -140,6 +148,7 @@ export default function Wardrobe() {
   });
 
   if (loading) return <div className="text-gray-500 mt-10">Loading your closet...</div>;
+  if (error) return <div className="text-gray-500 mt-10">{error}</div>;
   if (images.length === 0) return <div className="text-gray-500 mt-10">Your closet is empty. Add some items!</div>;
 
   const displayItems = activeTab === "available" ? availableItems : laundryItems;

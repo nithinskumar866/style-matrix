@@ -76,7 +76,10 @@ export default function ImageUpload() {
 
       if (!response.ok) throw new Error("AI Processing Failed");
 
-      setStatus("Successfully added to your wardrobe!");
+      const data = await response.json();
+      setStatus(data.failed > 0
+        ? `Added ${data.added} items. ${data.failed} could not be processed.`
+        : "Successfully added to your wardrobe!");
       setSelectedFiles([]); // Clear out the list
       
     } catch (error: any) {
@@ -120,7 +123,7 @@ export default function ImageUpload() {
         <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
           {isDragging ? "Drop images here" : "Click or drag images to upload"}
         </p>
-        <p className="text-xs text-zinc-400 mt-2">JPG, PNG, HEIC</p>
+        <p className="text-xs text-zinc-400 mt-2">JPG, PNG, WEBP</p>
       </div>
 
       {/* Selected Files List with Framer Motion */}

@@ -64,12 +64,16 @@ def wear_today(req: WearTodayRequest ,db: Session = Depends(get_db), user_id = D
     return {"response": "Updated clothes worn today", "status_code": 200}
 
 async def process_single_url(url, user_db_id):
-    async with httpx.AsyncClient() as client:
-        reponse = await client.get(url=url)
-        if reponse.status_code != 200: 
+    try:
+        async with httpx.AsyncClient() as client:
+            reponse = await client.get(url=url)
+        if reponse.status_code != 200:
             return None
-    
-    image = Image.open(BytesIO(reponse.content)).convert("RGB")
+        image = Image.open(BytesIO(reponse.content)).convert("RGB")
+    except (httpx.HTTPError, OSError):
+        # One bad image should not fail the rest of the batch
+        return None
+
     category_task = concurrency.run_in_threadpool(predict_category, image) 
     embedding_task = concurrency.run_in_threadpool(get_clip_embedding, image) 
     # Match the order of tasks to the variables
@@ -85,18 +89,23 @@ async def process_single_url(url, user_db_id):
 @router.post("/add-clothing")
 async def add_item(req: ImageAddRequest, db: Session = Depends(get_db), user_id = Depends(get_current_user)):
     urls = req.imageUrls
+    if not urls:
+        raise HTTPException(status_code=400, detail="No images provided")
     if not all(is_allowed_image_url(url) for url in urls):
         raise HTTPException(status_code=400, detail="Image URL not allowed")
     user_id = (await concurrency.run_in_threadpool(get_user, db=db, user_id=user_id)).id
     tasks = [process_single_url(url, user_db_id=user_id) for url in urls]
-    
+
     results = await asyncio.gather(*tasks)
     results = [r for r in results if r is not None]
+    if not results:
+        raise HTTPException(status_code=422, detail="None of the images could be processed")
+
     stmt = insert(ClothingItem.__table__).values(results)
     db.execute(statement=stmt)
     db.commit()
-    
-    return {"response":"Images created", "status_code": 201}
+
+    return {"response":"Images created", "added": len(results), "failed": len(urls) - len(results), "status_code": 201}
 
 @router.get("/items")
 def get_all_items(db: Session = Depends(get_db), user_id = Depends(get_current_user), count: int = 10):
