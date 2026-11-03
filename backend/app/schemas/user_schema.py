@@ -2,11 +2,11 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 class UserBase(BaseModel):
-    gender: str
-    body_type: Optional[str]
-    height: Optional[float]
-    weight: Optional[float]
-    skin_tone: Optional[str]
+    gender: Optional[str] = None
+    body_type: Optional[str] = None
+    height: Optional[float] = None
+    weight: Optional[float] = None
+    skin_tone: Optional[str] = None
     
 class UserCreate(UserBase):
     id: str

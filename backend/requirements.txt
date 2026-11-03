@@ -8,6 +8,9 @@ python-multipart==0.0.12
 supabase
 psycopg[binary]
 SQLAlchemy==2.0.35
+pgvector==0.5.1
+python-jose[cryptography]==3.5.0
+alembic==1.20.1
 pydantic==2.9.2
 
 # --- AI & Machine Learning (CPU-Only) ---

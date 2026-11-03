@@ -21,7 +21,6 @@ compatibility_model.eval()  # important for inference
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(BASE_DIR, "..", "data", "polyvore")
-embeddings = torch.load(os.path.join(data_path, "fashion_clip_embeddings.pt"), weights_only=False)
 CLIP_MODEL_ID = "patrickjohncyh/fashion-clip"
 processor = CLIPProcessor.from_pretrained(CLIP_MODEL_ID)
 clip_model = CLIPModel.from_pretrained(CLIP_MODEL_ID).to(DEVICE)
