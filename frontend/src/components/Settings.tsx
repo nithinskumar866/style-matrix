@@ -1,4 +1,5 @@
-import { useEffect, useState, useRef } from "react";
+import type { User } from "@supabase/supabase-js";
+import { useEffect, useState, useRef, type ChangeEvent } from "react";
 import { supabase } from "../lib/supabaseClient";
 import { useNavigate } from "react-router-dom";
 
@@ -6,7 +7,7 @@ export default function Settings() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
 
   const [formData, setFormData] = useState({
@@ -40,7 +41,7 @@ export default function Settings() {
     getUser();
   }, []);
 
-  const handleChange = (e: any) => {
+  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
@@ -56,8 +57,8 @@ export default function Settings() {
     else alert("Profile Updated Successfully");
   };
 
-  const handleImageUpload = async (e: any) => {
-    const file = e.target.files[0];
+  const handleImageUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (!file || !user) return;
 
     const filePath = `${user.id}-${Date.now()}`;
@@ -107,7 +108,7 @@ export default function Settings() {
 
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="px-4 py-2 bg-gray-200 rounded"
+          className="px-4 py-2 bg-gray-200 text-gray-900 rounded"
         >
           Change Photo
         </button>
@@ -129,7 +130,7 @@ export default function Settings() {
           <label className="capitalize">{key}</label>
           <input
             name={key}
-            value={(formData as any)[key]}
+            value={formData[key as keyof typeof formData]}
             onChange={handleChange}
             className="w-full border px-3 py-2 rounded"
           />

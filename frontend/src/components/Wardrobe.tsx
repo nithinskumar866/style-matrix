@@ -1,104 +1,14 @@
-// import { useEffect, useState } from "react";
-
-// export default function Wardrobe() {
-//   const [images, setImages] = useState<string[]>([]);
-
-//   useEffect(() => {
-//     fetch("http://127.0.0.1:8000/images")
-//       .then((res) => res.json())
-//       .then((data) => setImages(data.images))
-//       .catch((err) => console.error(err));
-//   }, []);
-
-//   return (
-//     <div className="grid grid-cols-3 gap-4">
-//       {images.map((img, index) => (
-//         <img
-//           key={index}
-//           src={`http://127.0.0.1:8000/uploads/${img}`}
-//           className="w-full h-40 object-cover"
-//         />
-//       ))}
-//     </div>
-//   );
-// }
-
-
-
-
-
-// import { useEffect, useState } from "react";
-
-// export default function Wardrobe() {
-//   const [images, setImages] = useState<string[]>([]);
-
-//   useEffect(() => {
-//     fetch("http://127.0.0.1:8000/images")
-//       .then((res) => res.json())
-//       .then((data) => setImages(data.images))
-//       .catch((err) => console.error(err));
-//   }, []);
-
-//   return (
-//     <div className="grid grid-cols-4 gap-4">
-//       {images.map((img, index) => (
-//         <img
-//           key={index}
-//           src={`http://127.0.0.1:8000/uploads/${img}`}
-//           className="w-full h-40 object-cover rounded"
-//         />
-//       ))}
-//     </div>
-//   );
-// }
-
-
-
-
-
-
-// import { useEffect, useState } from "react";
-
-// export default function Wardrobe() {
-//   const [images, setImages] = useState<any[]>([]);
-
-  
-//   useEffect(() => {
-//     fetch("http://127.0.0.1:8000/items")
-//       .then((res) => res.json())
-//       .then((data) => {
-//         setImages(data);
-//       })
-//       .catch((err) => console.error("Fetch error:", err));
-//   }, []);
-
-//   return (
-//     <div className="grid grid-cols-4 gap-4">
-//       {images.map((item, index) => (
-//         <div key={index} className="border p-2 rounded">
-//           <img
-//             src={item.image_url}
-//             alt="clothing"
-//             className="w-full h-40 object-cover rounded"
-//           />
-//           <p className="text-sm mt-2 text-center">
-//             Category: {item.category}
-//           </p>
-//         </div>
-//       ))}
-//     </div>
-//   );
-// }
-
-
 import { useAppContext } from "@/context/AppContext";
+import { getCategoryName } from "@/lib/categories";
+import type { ClothingItem } from "@/types";
 import { useEffect, useState } from "react";
 
 export default function Wardrobe() {
-  const [images, setImages] = useState<any[]>([]);
+  const [images, setImages] = useState<ClothingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"available" | "laundry">("available");
-  const { BACKEND_URL, session } = useAppContext();
+  const [error, setError] = useState("");
+  const { BACKEND_URL, session, logout } = useAppContext();
 
   useEffect(() => {
     const fetchWardrobe = async () => {
@@ -109,11 +19,18 @@ export default function Wardrobe() {
           }
         });
         
+        // The session is no longer valid, so send the user back to login
+        if (response.status === 401) {
+          await logout();
+          return;
+        }
         if (!response.ok) throw new Error("Failed to fetch");
         const data = await response.json();
         setImages(data?.results || []);
+        setError("");
       } catch (err) {
         console.error("Fetch error:", err);
+        setError("Couldn't load your closet. Please try again.");
       } finally {
         setLoading(false);
       }
@@ -122,24 +39,25 @@ export default function Wardrobe() {
     if (session) {
       fetchWardrobe();
     }
-  }, [session, BACKEND_URL]);
+  }, [session, BACKEND_URL, logout]);
 
-  // --- 3-Day Cooldown Math ---
+  // --- 5-Day Cooldown Math ---
   const now = new Date();
   
   const availableItems = images.filter(item => {
     if (!item.last_worn_date) return true; // Never worn = Available
     const diffDays = (now.getTime() - new Date(item.last_worn_date).getTime()) / (1000 * 3600 * 24);
-    return diffDays >= 3; 
+    return diffDays >= 5;
   });
 
   const laundryItems = images.filter(item => {
     if (!item.last_worn_date) return false;
     const diffDays = (now.getTime() - new Date(item.last_worn_date).getTime()) / (1000 * 3600 * 24);
-    return diffDays < 3; // Worn recently = In the Wash
+    return diffDays < 5; // Worn recently = In the Wash
   });
 
   if (loading) return <div className="text-gray-500 mt-10">Loading your closet...</div>;
+  if (error) return <div className="text-gray-500 mt-10">{error}</div>;
   if (images.length === 0) return <div className="text-gray-500 mt-10">Your closet is empty. Add some items!</div>;
 
   const displayItems = activeTab === "available" ? availableItems : laundryItems;
@@ -152,7 +70,7 @@ export default function Wardrobe() {
         <select 
           value={activeTab} 
           onChange={(e) => setActiveTab(e.target.value as "available" | "laundry")}
-          className="bg-white border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2.5 shadow-sm"
+          className="bg-white z-10 cursor-pointer border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block p-2.5 shadow-sm"
         >
           <option value="available">Available ({availableItems.length})</option>
           <option value="laundry">In the Wash ({laundryItems.length})</option>
@@ -165,15 +83,15 @@ export default function Wardrobe() {
         </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mt-6">
-          {displayItems.map((item, index) => (
-            <div key={index} className={`rounded-lg overflow-hidden shadow-sm border border-gray-200 bg-white relative ${activeTab === 'laundry' ? 'opacity-60 grayscale' : ''}`}>
+          {displayItems.map((item) => (
+            <div key={item.id} className={`rounded-lg overflow-hidden shadow-sm border border-gray-200 bg-white relative ${activeTab === 'laundry' ? 'opacity-60 grayscale' : ''}`}>
               <img
                 src={item.image_url} 
-                alt="Clothing item"
-                className="w-full h-48 object-cover"
+                alt={getCategoryName(item.category)}
+                className="w-full h-48 object-contain"
               />
               <div className="p-3 text-sm text-gray-700 font-medium border-t border-gray-100">
-                Category: {item.category} 
+                {getCategoryName(item.category)}
               </div>
               
               {/* Red Timestamp overlay for laundry items */}

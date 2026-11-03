@@ -30,11 +30,4 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-# Ignore large AI model weights (unless you specifically want them in LFS)
-*.pt
-*.pth
-*.safetensors
-# Virtual Environments
-venv/
-env/
-__pycache__/
+    

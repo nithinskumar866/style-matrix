@@ -3,6 +3,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt
 import os
 import requests
+import time
 from jose.exceptions import JWTError, ExpiredSignatureError
 from sqlalchemy.orm import Session
 from transformers import CLIPProcessor, CLIPModel 
@@ -11,6 +12,7 @@ from app.ai.config import DEVICE
 from sqlalchemy import text
 from app.crud import get_user
 from app.database import get_db
+from app.outfit_rules import SLOT_RANGES, slots_for_prompt
 from app.util import parse_pgvector , vector_to_pgvector
 from app.ai.recommendation.compatibility_model import CompatibilityModel
 from itertools import product
@@ -21,38 +23,52 @@ compatibility_model.eval()  # important for inference
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 data_path = os.path.join(BASE_DIR, "..", "data", "polyvore")
-#embeddings = torch.load(os.path.join(data_path, "fashion_clip_embeddings.pt"))
-embeddings = torch.load(os.path.join(data_path, "fashion_clip_embeddings.pt"), weights_only=False)
+compatibility_model.load_state_dict(
+    torch.load(os.path.join(data_path, "compatibility_model.pth"), map_location=DEVICE, weights_only=True)
+)
 CLIP_MODEL_ID = "patrickjohncyh/fashion-clip"
 processor = CLIPProcessor.from_pretrained(CLIP_MODEL_ID)
 clip_model = CLIPModel.from_pretrained(CLIP_MODEL_ID).to(DEVICE)
 clip_model.eval()
 
 security = HTTPBearer()
-SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 
 JWKS_URL = f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json"
-jwks = requests.get(JWKS_URL).json()
-algorithm = "ES256"
+JWKS_CACHE_SECONDS = 600
+# An unknown key ID can mean the keys were rotated, but limit refetches so
+# tokens with made-up key IDs can't trigger a request every time
+JWKS_MIN_REFETCH_SECONDS = 60
+jwks_cache = {"keys": [], "fetched_at": 0.0}
+
+def fetch_jwks():
+    response = requests.get(JWKS_URL, timeout=5)
+    response.raise_for_status()
+    keys = response.json().get("keys")
+    if not keys:
+        raise Exception("JWKS does not contain 'keys'")
+    jwks_cache["keys"] = keys
+    jwks_cache["fetched_at"] = time.monotonic()
+
+def find_key(kid):
+    return next((key for key in jwks_cache["keys"] if key["kid"] == kid), None)
 
 def get_public_key(token):
     header = jwt.get_unverified_header(token)
     kid = header.get("kid")
 
-    # Fetch JWKS
-    response = requests.get(JWKS_URL)
-    jwks = response.json()
-    keys = jwks.get("keys")
-    if not keys:
-        raise Exception("JWKS does not contain 'keys'")
+    age = time.monotonic() - jwks_cache["fetched_at"]
+    if not jwks_cache["keys"] or age > JWKS_CACHE_SECONDS:
+        fetch_jwks()
 
-    # Find matching key
-    for key in keys:
-        if key["kid"] == kid:
-            return key
+    key = find_key(kid)
+    if key is None and time.monotonic() - jwks_cache["fetched_at"] > JWKS_MIN_REFETCH_SECONDS:
+        fetch_jwks()
+        key = find_key(kid)
 
-    raise Exception("Public key not found")
+    if key is None:
+        raise Exception("Public key not found")
+    return key
 
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     token = credentials.credentials
@@ -71,38 +87,20 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         print("AUTH ERROR:", str(e))
         raise HTTPException(status_code=401, detail="Authentication failed")
 
-    except Exception as e: 
-        raise HTTPException(status_code=401, detail=f"invalid token {str(e)}")
     user_id = payload.get("sub")
     return user_id
 
-# replace with pytorch ai model 
-# - recommendation service 
-# - embedding service
-# - ranking service
-# - feedback service
-import random
+# How much the text prompt counts in an outfit's score, next to compatibility
+PROMPT_WEIGHT = 0.4
+# Text-to-image similarity rarely exceeds this, so treat it as a full prompt match
+MAX_PROMPT_SIMILARITY = 0.4
 
+def to_unit_tensor(embedding):
+    tensor = torch.tensor(embedding).view(1, -1).float().to(DEVICE)
+    return tensor / tensor.norm(dim=-1, keepdim=True)
 
-def rank_candidates(candidates):
-    scored = []
-    for c in candidates:
-        score = random.random()
-        scored.append({"outfit": c, "score": score})
-
-    scored.sort(key=lambda x: x["score"], reverse=True)
-    return scored
-
-def generate_candidates(items):
-    tops = [i for i in items if i.category == "top"]
-    bottoms = [i for i in items if i.category == "bottom"]
-
-    candidates = []
-    for t in tops:
-        for b in bottoms:
-            candidates.append([t.id, b.id])
-
-    return candidates
+def prompt_score(item):
+    return max(0.0, min(float(item.similarity) / MAX_PROMPT_SIMILARITY, 1.0))
 
 def get_top_compatible_outfits(outfit_candidates, model, embeddings_cache):
     combinations = []
@@ -119,12 +117,16 @@ def get_top_compatible_outfits(outfit_candidates, model, embeddings_cache):
         if e_top is None or e_bottom is None:
             continue
 
-        t_top = torch.tensor(e_top).view(1, -1).float().to(DEVICE)
-        t_bottom = torch.tensor(e_bottom).view(1, -1).float().to(DEVICE)
+        t_top = to_unit_tensor(e_top)
+        t_bottom = to_unit_tensor(e_bottom)
 
+        # The model was trained on pairs in both orders, so average them
         with torch.no_grad():
-            score_tb = model(t_top, t_bottom).item()
-        
+            compatibility = (model(t_top, t_bottom).item() + model(t_bottom, t_top).item()) / 2
+
+        prompt = (prompt_score(top) + prompt_score(bottom)) / 2
+        score_tb = (1 - PROMPT_WEIGHT) * compatibility + PROMPT_WEIGHT * prompt
+
         combinations.append({
             "score": score_tb,
             "outfit": {
@@ -139,10 +141,8 @@ def get_top_compatible_outfits(outfit_candidates, model, embeddings_cache):
         if e_full is None:
             continue
 
-        t_full = torch.tensor(e_full).view(1, -1).float().to(DEVICE)
-
-        with torch.no_grad():
-            score_full = model(t_full, t_full).item()  # score against itself or just use vector norm
+        # A single piece has nothing to pair with, so only the prompt applies
+        score_full = prompt_score(full)
 
         combinations.append({
             "score": score_full,
@@ -157,8 +157,7 @@ def get_top_compatible_outfits(outfit_candidates, model, embeddings_cache):
 
 def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
     user = get_user(db, user_id)
-    print("user id", user.id)
-    
+
     # 1. Encode the text prompt
     text_inputs = processor(text=[prompt], return_tensors="pt", padding=True).to(DEVICE)
     
@@ -179,50 +178,33 @@ def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
     # Convert to list (NO flatten)
     text_vector = text_features[0].cpu().numpy().tolist()
 
-    print("Text dim:", len(text_vector))
-
     # 2. Get Candidates
-    full_body_keywords = ["dress", "jumpsuit", "romper", "onesie", "kaftan", "sundress"]
-    if any(word in prompt.lower() for word in full_body_keywords):
-        slots = ["full"]
-    else:
-        slots = ["top", "bottom"]
     outfit_candidates = {}
     local_embeddings_cache = {} # This will store the vectors for the scorer
-    print("Text dim:", len(text_vector))
 
-    slotMapping = {
-        "top": (1, 20),
-        "bottom": (21, 36),
-        "full": (36, 50),
-    }
-    for slot in slots:
-        # THE BACKEND FIX: This SQL query completely blinds the AI to dirty clothes
+    for slot in slots_for_prompt(prompt):
+        # Note: Added category filter back in so 'top' doesn't return 'shoes'
         query = text("""
-            WITH scored_items AS(
-                SELECT 
-                    id,
-                    image_url, 
-                    category, 
-                    embedding, 
-                    (1 - (embedding <=> :text_emb)) as similarity
-                FROM clothing_items
-                WHERE user_id = :user_id
-                AND category::int BETWEEN :start AND :end
-                -- THE 3-DAY RULE: Only grab items never worn, or worn over 3 days ago
-                AND (last_worn_date IS NULL OR last_worn_date <= NOW() - INTERVAL '3 days')
-            )
-            SELECT id, image_url, category, similarity, embedding, similarity as final_rank_score   
-            FROM scored_items
-            ORDER BY final_rank_score DESC
+            SELECT
+                id,
+                image_url,
+                category,
+                embedding,
+                (1 - (embedding <=> :text_emb)) as similarity
+            FROM clothing_items
+            WHERE user_id = :user_id
+            AND category::int BETWEEN :start AND :end
+            -- Items in the wash stay out of suggestions, matching the wardrobe page
+            AND (last_worn_date IS NULL OR last_worn_date <= NOW() - INTERVAL '5 days')
+            ORDER BY similarity DESC
             LIMIT 5
         """)
         
         results = db.execute(query, {
             "text_emb": vector_to_pgvector(text_vector), 
             "user_id": user.id,
-            "start": slotMapping[slot][0],
-            "end": slotMapping[slot][1],
+            "start": SLOT_RANGES[slot][0],
+            "end": SLOT_RANGES[slot][1],
         }).fetchall()
 
         outfit_candidates[slot] = results

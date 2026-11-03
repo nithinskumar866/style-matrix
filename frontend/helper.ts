@@ -8,5 +8,5 @@ export async function uploadImageToSupabase(file:File, folder = 'user-clothing-i
 
   if (error) throw error
 
-  return supabase.storage.from(imagesBucketName).getPublicUrl(filepath).data.publicUrl;
+  return supabase.storage.from(imagesBucketName).getPublicUrl(data.path).data.publicUrl;
 }  

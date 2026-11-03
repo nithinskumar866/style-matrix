@@ -76,12 +76,15 @@ export default function ImageUpload() {
 
       if (!response.ok) throw new Error("AI Processing Failed");
 
-      setStatus("Successfully added to your wardrobe!");
+      const data = await response.json();
+      setStatus(data.failed > 0
+        ? `Added ${data.added} items. ${data.failed} could not be processed.`
+        : "Successfully added to your wardrobe!");
       setSelectedFiles([]); // Clear out the list
       
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
-      setStatus(`Error: ${error.message}`);
+      setStatus(`Error: ${error instanceof Error ? error.message : "Upload failed"}`);
     } finally {
       setLoading(false);
     }
@@ -120,7 +123,7 @@ export default function ImageUpload() {
         <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
           {isDragging ? "Drop images here" : "Click or drag images to upload"}
         </p>
-        <p className="text-xs text-zinc-400 mt-2">JPG, PNG, HEIC</p>
+        <p className="text-xs text-zinc-400 mt-2">JPG, PNG, WEBP</p>
       </div>
 
       {/* Selected Files List with Framer Motion */}
@@ -157,7 +160,7 @@ export default function ImageUpload() {
         <button
           onClick={handleSubmit}
           disabled={loading || selectedFiles.length === 0}
-          className="w-full flex items-center justify-center py-4 px-6 text-xs uppercase tracking-widest font-bold text-white bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:bg-zinc-300 dark:disabled:bg-zinc-800 disabled:text-zinc-500 transition-colors"
+          className="w-full flex items-center justify-center py-4 px-6 text-xs uppercase tracking-widest font-bold text-white bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:bg-zinc-300 dark:disabled:bg-zinc-800 disabled:text-zinc-500 dark:disabled:text-zinc-400 transition-colors"
         >
           {loading ? (
             <>

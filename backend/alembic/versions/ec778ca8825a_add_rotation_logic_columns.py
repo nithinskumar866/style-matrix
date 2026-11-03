@@ -20,9 +20,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    pass
+    op.execute("ALTER TABLE clothing_items ADD COLUMN IF NOT EXISTS last_worn_date TIMESTAMPTZ")
+    op.execute("ALTER TABLE clothing_items ADD COLUMN IF NOT EXISTS score DOUBLE PRECISION DEFAULT 1.0")
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    pass
+    op.drop_column('clothing_items', 'score')
+    op.drop_column('clothing_items', 'last_worn_date')

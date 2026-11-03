@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from fastapi import Depends
 from app.services import get_current_user
-router = APIRouter(prefix="/feedback", tags=["Feedback"])
+router = APIRouter()
 
 
 @router.post("/")

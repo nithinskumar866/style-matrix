@@ -26,7 +26,7 @@ export function Login() {
     try {
       if (isSignUp) {
         // Calls the Supabase signup logic from AppContext
-        await signup(email, password);
+        await signup(email, password, name);
         console.log("Registration successful");
       } else {
         // Calls the Supabase login logic from AppContext
@@ -34,15 +34,11 @@ export function Login() {
         console.log("Login successful");
       }
       // Note: Navigation to "/" is handled automatically inside AppContext.tsx
-    } catch (error: any) {
-      console.error("Auth error:", error.message);
-      alert(error.message || "Authentication failed. Please try again.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Authentication failed. Please try again.";
+      console.error("Auth error:", message);
+      alert(message);
     }
-  };
-
-  const handleGoogleAuth = () => {
-    console.log("Redirecting to Google Auth...");
-    // Future: Add Google OAuth logic here using supabase.auth.signInWithOAuth()
   };
 
   return (
@@ -92,16 +88,9 @@ export function Login() {
             </div>
 
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password" className="text-[10px] uppercase tracking-widest text-stone-600 font-bold">
-                  Password
-                </Label>
-                {!isSignUp && (
-                  <a href="#" className="text-[10px] text-stone-400 hover:text-stone-900 transition-colors uppercase tracking-widest">
-                    Forgot password?
-                  </a>
-                )}
-              </div>
+              <Label htmlFor="password" className="text-[10px] uppercase tracking-widest text-stone-600 font-bold">
+                Password
+              </Label>
               <Input
                 id="password"
                 type="password"
@@ -119,27 +108,6 @@ export function Login() {
               {isSignUp ? "Create Account" : "Sign In"}
             </Button>
           </form>
-
-          <div className="relative pt-2">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t border-stone-200" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-white px-3 text-stone-400 tracking-widest text-[10px]">Or continue with</span>
-            </div>
-          </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleGoogleAuth}
-            className="w-full rounded-none border-stone-300 hover:bg-stone-50 h-12 text-stone-700 transition-all"
-          >
-            <svg className="mr-3 h-4 w-4" aria-hidden="true" focusable="false" viewBox="0 0 488 512">
-              <path fill="currentColor" d="M488 261.8C488 403.3 391.1 504 248 504 110.8 504 0 393.2 0 256S110.8 8 248 8c66.8 0 123 24.5 166.3 64.9l-67.5 64.9C258.5 52.6 94.3 116.6 94.3 256c0 86.5 69.1 156.6 153.7 156.6 98.2 0 135-70.4 140.8-106.9H248v-85.3h236.1c2.3 12.7 3.9 24.9 3.9 41.4z"></path>
-            </svg>
-            <span className="uppercase tracking-widest text-xs font-semibold">Google</span>
-          </Button>
         </CardContent>
 
         <CardFooter className="flex justify-center pb-12 pt-4">
