@@ -1,3 +1,4 @@
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 from .models import User, ClothingItem
 from app.schemas.clothing_schema import ClothingCreate
@@ -15,10 +16,10 @@ def get_user(db: Session, user_id: str):
     ).first()
 
     if not db_user:
-        db_user = User(user_id=user_id)
-        db.add(db_user)
+        # A new user's first requests can arrive together, so let only one insert win
+        db.execute(insert(User).values(user_id=user_id).on_conflict_do_nothing(index_elements=["user_id"]))
         db.commit()
-        db.refresh(db_user)
+        db_user = db.query(User).filter(User.user_id == user_id).one()
     return db_user
 
 def add_clothing_item(db: Session, item_data: ClothingCreate, user_id):

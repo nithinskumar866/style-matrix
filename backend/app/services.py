@@ -12,7 +12,8 @@ from app.ai.config import DEVICE
 from sqlalchemy import text
 from app.crud import get_user
 from app.database import get_db
-from app.outfit_rules import SLOT_RANGES, slots_for_prompt
+from app.models import Feedback
+from app.outfit_rules import SLOT_CATEGORIES, WASH_DAYS, feedback_adjustment, slots_for_prompt, style_context, wants_outer_layer
 from app.util import parse_pgvector , vector_to_pgvector
 from app.ai.recommendation.compatibility_model import CompatibilityModel
 from itertools import product
@@ -94,6 +95,9 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 PROMPT_WEIGHT = 0.4
 # Text-to-image similarity rarely exceeds this, so treat it as a full prompt match
 MAX_PROMPT_SIMILARITY = 0.4
+# How much the weather and profile move the search, next to the prompt itself
+CONTEXT_WEIGHT = 0.25
+DEFAULT_PROMPT = "a stylish everyday outfit"
 
 def to_unit_tensor(embedding):
     tensor = torch.tensor(embedding).view(1, -1).float().to(DEVICE)
@@ -102,7 +106,32 @@ def to_unit_tensor(embedding):
 def prompt_score(item):
     return max(0.0, min(float(item.similarity) / MAX_PROMPT_SIMILARITY, 1.0))
 
-def get_top_compatible_outfits(outfit_candidates, model, embeddings_cache):
+def pair_compatibility(model, a, b):
+    # The model was trained on pairs in both orders, so average them
+    t_a, t_b = to_unit_tensor(a), to_unit_tensor(b)
+    with torch.no_grad():
+        return (model(t_a, t_b).item() + model(t_b, t_a).item()) / 2
+
+def clamp_score(score):
+    return max(0.0, min(score, 1.0))
+
+def add_finishing_pieces(outfit, outfit_candidates, model, embeddings_cache):
+    """Adds the best layer, shoes and accessory that go with the outfit's main pieces."""
+    core = [embeddings_cache[piece["url"]] for piece in outfit.values()]
+    for slot in ("outer", "shoes", "accessory"):
+        best, best_score = None, None
+        for candidate in outfit_candidates.get(slot, []):
+            embedding = embeddings_cache.get(candidate.image_url)
+            if embedding is None:
+                continue
+            compatibility = sum(pair_compatibility(model, embedding, piece) for piece in core) / len(core)
+            score = (1 - PROMPT_WEIGHT) * compatibility + PROMPT_WEIGHT * prompt_score(candidate)
+            if best_score is None or score > best_score:
+                best, best_score = candidate, score
+        if best is not None:
+            outfit[slot] = {"id": best.id, "url": best.image_url}
+
+def get_top_compatible_outfits(outfit_candidates, model, embeddings_cache, feedback=None):
     combinations = []
 
     # 1️⃣ Handle top+bottom combos
@@ -117,15 +146,11 @@ def get_top_compatible_outfits(outfit_candidates, model, embeddings_cache):
         if e_top is None or e_bottom is None:
             continue
 
-        t_top = to_unit_tensor(e_top)
-        t_bottom = to_unit_tensor(e_bottom)
-
-        # The model was trained on pairs in both orders, so average them
-        with torch.no_grad():
-            compatibility = (model(t_top, t_bottom).item() + model(t_bottom, t_top).item()) / 2
+        compatibility = pair_compatibility(model, e_top, e_bottom)
 
         prompt = (prompt_score(top) + prompt_score(bottom)) / 2
         score_tb = (1 - PROMPT_WEIGHT) * compatibility + PROMPT_WEIGHT * prompt
+        score_tb = clamp_score(score_tb + feedback_adjustment([top.id, bottom.id], feedback))
 
         combinations.append({
             "score": score_tb,
@@ -142,7 +167,7 @@ def get_top_compatible_outfits(outfit_candidates, model, embeddings_cache):
             continue
 
         # A single piece has nothing to pair with, so only the prompt applies
-        score_full = prompt_score(full)
+        score_full = clamp_score(prompt_score(full) + feedback_adjustment([full.id], feedback))
 
         combinations.append({
             "score": score_full,
@@ -153,14 +178,17 @@ def get_top_compatible_outfits(outfit_candidates, model, embeddings_cache):
 
     # 3️⃣ Sort and return top 5
     combinations.sort(key=lambda x: x["score"], reverse=True)
-    return combinations[:5]
+    top_outfits = combinations[:5]
 
-def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
-    user = get_user(db, user_id)
+    # 4️⃣ Finish the winners, which leaves the main pieces deciding the ranking
+    for combination in top_outfits:
+        add_finishing_pieces(combination["outfit"], outfit_candidates, model, embeddings_cache)
+    return top_outfits
 
-    # 1. Encode the text prompt
-    text_inputs = processor(text=[prompt], return_tensors="pt", padding=True).to(DEVICE)
-    
+def encode_text(prompt: str):
+    # CLIP accepts 77 tokens at most, so long prompts have to be cut
+    text_inputs = processor(text=[prompt], return_tensors="pt", padding=True, truncation=True).to(DEVICE)
+
     with torch.no_grad():
         outputs = clip_model.get_text_features(**text_inputs)
 
@@ -173,7 +201,18 @@ def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
         text_features = outputs[0]
 
     # Normalize
-    text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+    return text_features / text_features.norm(dim=-1, keepdim=True)
+
+def suggest_outfit_from_text(prompt: str, db: Session, user_id: str, weather: dict | None = None, profile: dict | None = None):
+    user = get_user(db, user_id)
+    prompt = prompt.strip() or DEFAULT_PROMPT
+
+    # 1. Encode the text prompt, leaning it towards the weather and profile
+    text_features = encode_text(prompt)
+    context = style_context(weather, profile)
+    if context:
+        text_features = (1 - CONTEXT_WEIGHT) * text_features + CONTEXT_WEIGHT * encode_text(context)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 
     # Convert to list (NO flatten)
     text_vector = text_features[0].cpu().numpy().tolist()
@@ -182,8 +221,7 @@ def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
     outfit_candidates = {}
     local_embeddings_cache = {} # This will store the vectors for the scorer
 
-    for slot in slots_for_prompt(prompt):
-        # Note: Added category filter back in so 'top' doesn't return 'shoes'
+    def find_candidates(categories):
         query = text("""
             SELECT
                 id,
@@ -193,31 +231,48 @@ def suggest_outfit_from_text(prompt: str, db: Session, user_id: str):
                 (1 - (embedding <=> :text_emb)) as similarity
             FROM clothing_items
             WHERE user_id = :user_id
-            AND category::int BETWEEN :start AND :end
+            AND category::int = ANY(:categories)
             -- Items in the wash stay out of suggestions, matching the wardrobe page
-            AND (last_worn_date IS NULL OR last_worn_date <= NOW() - INTERVAL '5 days')
+            AND (last_worn_date IS NULL OR last_worn_date <= NOW() - make_interval(days => :wash_days))
             ORDER BY similarity DESC
             LIMIT 5
         """)
-        
+
         results = db.execute(query, {
-            "text_emb": vector_to_pgvector(text_vector), 
+            "text_emb": vector_to_pgvector(text_vector),
             "user_id": user.id,
-            "start": SLOT_RANGES[slot][0],
-            "end": SLOT_RANGES[slot][1],
+            "categories": categories,
+            "wash_days": WASH_DAYS,
         }).fetchall()
 
-        outfit_candidates[slot] = results
-        
         # Fill the cache with the 512-dim vectors from the DB
         for row in results:
             local_embeddings_cache[row.image_url] = parse_pgvector(row.embedding)
+        return results
+
+    for slot in slots_for_prompt(prompt):
+        outfit_candidates[slot] = find_candidates(SLOT_CATEGORIES[slot])
+
+    # A jacket can still be the top for someone with nothing else clean
+    if "top" in outfit_candidates and not outfit_candidates["top"]:
+        outfit_candidates["top"] = find_candidates(SLOT_CATEGORIES["outer"])
+    elif wants_outer_layer(prompt, weather):
+        outfit_candidates["outer"] = find_candidates(SLOT_CATEGORIES["outer"])
+    outfit_candidates["shoes"] = find_candidates(SLOT_CATEGORIES["shoes"])
+    outfit_candidates["accessory"] = find_candidates(SLOT_CATEGORIES["accessory"])
+
+    feedback = [
+        (row.items, row.reward)
+        for row in db.query(Feedback).filter(Feedback.user_id == user.id)
+        if row.items
+    ]
 
     # 3. Use the Compatibility Model
     outfits = get_top_compatible_outfits(
         outfit_candidates=outfit_candidates,
         model=compatibility_model,
-        embeddings_cache=local_embeddings_cache # Pass the freshly pulled vectors
+        embeddings_cache=local_embeddings_cache, # Pass the freshly pulled vectors
+        feedback=feedback,
     )
     
     return outfits

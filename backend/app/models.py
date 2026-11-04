@@ -21,6 +21,18 @@ class User(Base):
         cascade="all, delete-orphan"
     )
 
+    wear_events = relationship(
+        "WearEvent",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+
+    saved_outfits = relationship(
+        "SavedOutfit",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+
 
 class ClothingItem(Base):
     __tablename__ = "clothing_items"
@@ -31,6 +43,7 @@ class ClothingItem(Base):
     name = Column(String)
     image_url = Column(String)
     category = Column(String)
+    price = Column(Float, nullable=True)
 
     user_id = Column(Integer, ForeignKey("users.id"))   # INTEGER FK
     user = relationship("User", back_populates="clothing_items")
@@ -54,3 +67,32 @@ class Feedback(Base):
     time_of_day = Column(String, nullable=True)
     predicted_score = Column(Float, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class WearEvent(Base):
+    """One item worn at one time. Items worn together share an outfit_key."""
+    __tablename__ = "wear_events"
+
+    id = Column(Integer, primary_key=True)
+
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user = relationship("User", back_populates="wear_events")
+
+    item_id = Column(Integer, ForeignKey("clothing_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    outfit_key = Column(String, nullable=False, index=True)
+    worn_at = Column(DateTime(timezone=True), nullable=False)
+    # Lets a mistaken "wear today" be undone without losing the earlier date
+    previous_last_worn = Column(DateTime(timezone=True), nullable=True)
+
+
+class SavedOutfit(Base):
+    __tablename__ = "saved_outfits"
+
+    id = Column(Integer, primary_key=True)
+
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user = relationship("User", back_populates="saved_outfits")
+
+    name = Column(String, nullable=False)
+    item_ids = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

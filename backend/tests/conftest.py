@@ -26,7 +26,15 @@ def fake_current_user(x_test_user: str = Header()):
 
 services = types.ModuleType("app.services")
 services.get_current_user = fake_current_user
-services.suggest_outfit_from_text = lambda prompt, db, user_id: []
+services.recommend_calls = []
+
+
+def fake_suggest(**kwargs):
+    services.recommend_calls.append(kwargs)
+    return []
+
+
+services.suggest_outfit_from_text = fake_suggest
 sys.modules["app.services"] = services
 
 util = types.ModuleType("app.util")
@@ -41,7 +49,7 @@ from app.main import app  # noqa: E402
 @pytest.fixture
 def client():
     with engine.begin() as connection:
-        connection.execute(text("TRUNCATE clothing_items, feedback, users RESTART IDENTITY CASCADE"))
+        connection.execute(text("TRUNCATE wear_events, saved_outfits, clothing_items, feedback, users RESTART IDENTITY CASCADE"))
     return TestClient(app)
 
 
