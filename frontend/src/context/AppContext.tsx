@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate as useNavigateRouter } from "react-router-dom";
+import { useToast } from "./ToastContext";
 
 interface UserProfile {
   id: string;
@@ -45,6 +46,7 @@ export const AppContextProvider = ({ children }: AppContextProviderProps) => {
   const [session, setSession] = useState<Session | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   const configureSessionUserData = (currentSession: Session | null) => {
     setSession(currentSession);
@@ -61,7 +63,8 @@ export const AppContextProvider = ({ children }: AppContextProviderProps) => {
       configureSessionUserData(session);
       if (!isInitialized) {
         isInitialized = true;
-        await getUserDetails(session);
+        // Not awaited: Supabase waits for this callback before finishing sign-in
+        getUserDetails(session);
       }
     };
 
@@ -89,11 +92,10 @@ export const AppContextProvider = ({ children }: AppContextProviderProps) => {
     if (error) throw error;
     // With email confirmation on, there is no session until the link is clicked
     if (!data.session) {
-      alert("Check your email to confirm your account, then sign in.");
+      showToast("Check your email to confirm your account, then sign in.");
       return;
     }
     configureSessionUserData(data.session);
-    navigate("/");
   };
 
   const login = async (email: string, password: string) => {
@@ -103,7 +105,6 @@ export const AppContextProvider = ({ children }: AppContextProviderProps) => {
     });
     if (error) throw error;
     configureSessionUserData(data.session);
-    navigate("/");
   };
 
   const logout = useCallback(async () => {

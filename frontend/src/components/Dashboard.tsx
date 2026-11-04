@@ -1,117 +1,103 @@
-import { AnimatePresence, motion } from "framer-motion";
-import { Camera, LayoutGrid, Settings, Sparkles, User } from "lucide-react";
-import type { User as AuthUser } from "@supabase/supabase-js";
-import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabaseClient";
+import { useAppContext } from "@/context/AppContext";
+import { motion } from "framer-motion";
+import { BarChart3, CalendarDays, Camera, LayoutGrid, Settings, Sparkles, User } from "lucide-react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 
-// Import your page components
-import ImageUpload from "./ImageUpload"; // We will create the new version of this next
-import OutfitIdeas from "./OutfitIdeas";
-import SettingsPage from "./Settings";
-import Wardrobe from "./Wardrobe";
+const NAV_ITEMS = [
+  { name: "Wardrobe", path: "/wardrobe", icon: LayoutGrid },
+  { name: "Upload", path: "/upload", icon: Camera },
+  { name: "Outfit Ideas", shortName: "Ideas", path: "/outfits", icon: Sparkles },
+  { name: "Calendar", path: "/calendar", icon: CalendarDays },
+  { name: "Insights", path: "/insights", icon: BarChart3 },
+  { name: "Settings", path: "/settings", icon: Settings },
+];
 
 // --- Main Dashboard Component ---
 export default function Dashboard() {
-  const [activePage, setActivePage] = useState("Wardrobe");
+  const { pathname } = useLocation();
 
   return (
-    <div className="dark min-h-screen bg-slate-950 text-white font-sans">
-      {/* Subtle background pattern for glass effect */}
-      <div className="fixed inset-0 z-0 opacity-50">
-        <div className="absolute inset-0 from-indigo-950 via-slate-950 to-rose-950"></div>
-      </div>
-      
-      <Sidebar activePage={activePage} setActivePage={setActivePage} />
+    <div className="min-h-screen bg-background text-foreground font-sans">
+      {/* Subtle background glow */}
+      <div className="fixed inset-0 z-0 opacity-40 pointer-events-none bg-linear-to-br from-indigo-950 via-background to-rose-950" />
 
-      <main className="pl-72 pt-8 pr-8">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activePage}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3 }}
-          >
-            {renderPage(activePage)}
-          </motion.div>
-        </AnimatePresence>
+      <Sidebar />
+      <BottomNav />
+
+      <main className="relative z-10 px-4 pt-6 pb-24 md:pl-72 md:pr-8 md:pt-8 md:pb-8">
+        <motion.div
+          key={pathname}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25 }}
+        >
+          <Outlet />
+        </motion.div>
       </main>
     </div>
   );
 }
 
-// --- Sidebar Component ---
-const Sidebar = ({ activePage, setActivePage }: { activePage: string, setActivePage: (page: string) => void }) => {
-  const [user, setUser] = useState<AuthUser | null>(null);
-
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUser(data.user));
-  }, []);
-
-  const navItems = [
-    { name: "Wardrobe", icon: LayoutGrid },
-    { name: "Upload", icon: Camera },
-    { name: "Outfit Ideas", icon: Sparkles },
-    { name: "Settings", icon: Settings },
-  ];
+// --- Sidebar Component, for larger screens ---
+const Sidebar = () => {
+  const { user } = useAppContext();
 
   return (
-    <motion.aside 
-      initial={{ x: '-100%', opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      transition={{ duration: 0.5, ease: "easeInOut" }}
-      className="fixed top-4 bottom-4 left-4 w-64 p-6 rounded-2xl flex flex-col
-                 bg-black/30 backdrop-blur-xl border border-white/10 shadow-2xl"
+    <aside
+      className="hidden md:flex fixed z-20 top-4 bottom-4 left-4 w-64 p-6 rounded-2xl flex-col
+                 bg-card/70 backdrop-blur-xl border shadow-2xl"
     >
-      <h1 className="text-2xl font-bold tracking-tighter mb-12">Style Matrix</h1>
-      
+      <h1 className="text-2xl font-bold tracking-tighter mb-10">Style Matrix</h1>
+
       <nav className="grow">
-        <ul className="space-y-3">
-          {navItems.map((item) => (
-            <li key={item.name}>
-              <button
-                onClick={() => setActivePage(item.name)}
-                className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium
-                           text-gray-300 hover:text-white transition-colors relative"
+        <ul className="space-y-2">
+          {NAV_ITEMS.map((item) => (
+            <li key={item.path}>
+              <NavLink
+                to={item.path}
+                className={({ isActive }) =>
+                  `flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    isActive ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`
+                }
               >
-                {activePage === item.name && (
-                  <motion.div
-                    layoutId="active-pill"
-                    className="absolute inset-0 bg-white/10 rounded-lg"
-                    style={{ borderRadius: 12 }}
-                    transition={{ duration: 0.5, type: "spring" }}
-                  />
-                )}
-                <item.icon className="w-5 h-5 z-10" />
-                <span className="z-10">{item.name}</span>
-              </button>
+                <item.icon className="w-5 h-5" />
+                <span>{item.name}</span>
+              </NavLink>
             </li>
           ))}
         </ul>
       </nav>
 
-      <div className="flex items-center gap-3 pt-6 border-t border-white/10">
-        <div className="w-10 h-10 rounded-full bg-black/50 flex items-center justify-center border border-white/10">
-          <User className="w-5 h-5 text-gray-400" />
+      <div className="flex items-center gap-3 pt-6 border-t">
+        <div className="w-10 h-10 shrink-0 rounded-full bg-muted flex items-center justify-center border">
+          <User className="w-5 h-5 text-muted-foreground" />
         </div>
         <p className="text-sm font-semibold truncate">{user?.email || "..."}</p>
       </div>
-    </motion.aside>
+    </aside>
   );
 };
 
-// --- Helper to render the correct page ---
-const renderPage = (pageName: string) => {
-  switch (pageName) {
-    case "Wardrobe":
-      return <Wardrobe />;
-    case "Upload":
-      return <ImageUpload />;
-    case "Outfit Ideas":
-      return <OutfitIdeas />;
-    case "Settings":
-      return <SettingsPage />;
-    default:
-      return <Wardrobe />;
-  }
-};
+// --- Bottom navigation, for phones ---
+const BottomNav = () => (
+  <nav aria-label="Main" className="md:hidden fixed z-20 bottom-0 inset-x-0 border-t bg-card/95 backdrop-blur-xl">
+    <ul className="grid grid-cols-6">
+      {NAV_ITEMS.map((item) => (
+        <li key={item.path}>
+          <NavLink
+            to={item.path}
+            className={({ isActive }) =>
+              `flex flex-col items-center gap-1 py-2 text-[11px] font-medium transition-colors ${
+                isActive ? "text-indigo-300" : "text-muted-foreground"
+              }`
+            }
+          >
+            <item.icon className="w-5 h-5" />
+            <span>{item.shortName ?? item.name}</span>
+          </NavLink>
+        </li>
+      ))}
+    </ul>
+  </nav>
+);

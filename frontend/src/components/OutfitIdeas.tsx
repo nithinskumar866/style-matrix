@@ -1,30 +1,82 @@
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { EmptyState, PageHeader, SkeletonGrid } from "@/components/ui/page-states";
 import { useAppContext } from "@/context/AppContext";
-import type { Outfit, OutfitSlot, Recommendation } from "@/types";
-import { useState } from "react";
+import { useToast } from "@/context/ToastContext";
+import { useApi } from "@/hooks/useApi";
+import { getCurrentWeather } from "@/lib/weather";
+import type { Outfit, OutfitSlot, Recommendation, Weather } from "@/types";
+import { Bookmark, CloudSun, Sparkles, ThumbsDown, ThumbsUp } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import OutfitPieces from "./OutfitPieces";
+
+const SLOT_ORDER: OutfitSlot[] = ["outer", "top", "bottom", "fullbody", "shoes", "accessory"];
+const SLOT_NAMES: Record<OutfitSlot, string> = {
+  outer: "Layer",
+  top: "Top",
+  bottom: "Bottom",
+  fullbody: "Full body",
+  shoes: "Shoes",
+  accessory: "Accessory",
+};
+const TODAY_PROMPT = "What should I wear today?";
+
+const outfitItemIds = (outfit: Outfit) =>
+  SLOT_ORDER.flatMap((slot) => (outfit[slot] ? [outfit[slot].id] : []));
+
+const outfitKey = (outfit: Outfit) => outfitItemIds(outfit).join("-");
 
 export default function OutfitIdeas() {
   const [query, setQuery] = useState("");
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(false);
-  const [markingAsWorn, setMarkingAsWorn] = useState<number | null>(null);
+  const [busyOutfit, setBusyOutfit] = useState<string | null>(null);
   const [message, setMessage] = useState("");
-  
-  const { BACKEND_URL, session } = useAppContext();
+  const [weather, setWeather] = useState<Weather | null>(null);
+  const [loadingWeather, setLoadingWeather] = useState(false);
+  const [reactions, setReactions] = useState<Record<string, boolean>>({});
+  const [saved, setSaved] = useState<Record<string, boolean>>({});
 
-  const getRecommendations = async () => {
-    if (!query) return;
+  const { user } = useAppContext();
+  const { apiJson } = useApi();
+  const { showToast } = useToast();
+
+  const styleProfile = () => {
+    const metadata = user?.user_metadata;
+    if (!metadata || metadata.use_profile_for_suggestions === false) return null;
+    const height = Number(metadata.height);
+    return {
+      gender: metadata.gender?.toLowerCase() || null,
+      body_type: metadata.bodytype?.toLowerCase() || null,
+      skin_tone: metadata.skintone?.toLowerCase() || null,
+      height: height > 0 ? height : null,
+    };
+  };
+
+  const loadWeather = async () => {
+    setLoadingWeather(true);
+    try {
+      const current = await getCurrentWeather();
+      setWeather(current);
+      return current;
+    } catch (error) {
+      console.error(error);
+      showToast("Couldn't get your weather. Check that location access is allowed.", { isError: true });
+      return null;
+    } finally {
+      setLoadingWeather(false);
+    }
+  };
+
+  const getRecommendations = async (prompt: string, currentWeather: Weather | null) => {
     setLoading(true);
     setMessage("");
     try {
-      const response = await fetch(`${BACKEND_URL}/api/recommendation/recommend?prompt=${encodeURIComponent(query)}`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session?.access_token}`
-        }
+      const data = await apiJson<{ recommendations?: Recommendation[] }>("/recommendation/recommend", "POST", {
+        prompt,
+        weather: currentWeather,
+        profile: styleProfile(),
       });
-      if (!response.ok) throw new Error("Failed to fetch recommendations");
-      const data = await response.json();
       const results = data.recommendations || [];
       setRecommendations(results);
       if (results.length === 0) {
@@ -39,101 +91,171 @@ export default function OutfitIdeas() {
     }
   };
 
-  const handleWearToday = async (index: number, outfit: Outfit) => {
-    setMarkingAsWorn(index);
-    try {
-      // Extract IDs for both items in the outfit
-      const itemIds = [outfit.top?.id, outfit.bottom?.id, outfit.fullbody?.id].filter(Boolean);
-      
-      const response = await fetch(`${BACKEND_URL}/api/wardrobe/wear-today`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session?.access_token}`
-        },
-        body: JSON.stringify({ item_ids: itemIds })
-      });
+  const handleSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    if (query.trim()) getRecommendations(query, weather);
+  };
 
-      if (response.ok) {
-        // Remove the outfit from the list or show a success state
-        setRecommendations(prev => prev.filter((_, i) => i !== index));
-        alert("Outfit logged! Your rotation scores have been updated.");
-      } else {
-        alert("Couldn't log this outfit. Please try again.");
-      }
+  const handleWhatToday = async () => {
+    setQuery(TODAY_PROMPT);
+    getRecommendations(TODAY_PROMPT, weather ?? await loadWeather());
+  };
+
+  const handleWearToday = async (index: number, result: Recommendation) => {
+    const key = outfitKey(result.outfit);
+    setBusyOutfit(key);
+    try {
+      const { outfit_key } = await apiJson<{ outfit_key: string }>("/wardrobe/wear-today", "POST", {
+        item_ids: outfitItemIds(result.outfit),
+      });
+      setRecommendations((current) => current.filter((_, i) => i !== index));
+      showToast("Outfit logged, and these clothes are now in the wash.", {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            try {
+              await apiJson("/wardrobe/undo-wear", "POST", { outfit_key });
+              setRecommendations((current) => [...current.slice(0, index), result, ...current.slice(index)]);
+            } catch (error) {
+              console.error(error);
+              showToast("Couldn't undo that. Please try again.", { isError: true });
+            }
+          },
+        },
+      });
     } catch (error) {
       console.error("Error updating wear status:", error);
-      alert("Couldn't log this outfit. Please try again.");
+      showToast("Couldn't log this outfit. Please try again.", { isError: true });
     } finally {
-      setMarkingAsWorn(null);
+      setBusyOutfit(null);
+    }
+  };
+
+  const handleReaction = async (result: Recommendation, liked: boolean) => {
+    const key = outfitKey(result.outfit);
+    const previous = reactions[key];
+    setReactions((current) => ({ ...current, [key]: liked }));
+    try {
+      await apiJson("/feedback/", "POST", {
+        item_ids: outfitItemIds(result.outfit),
+        liked,
+        occasion: query || null,
+        predicted_score: result.score,
+      });
+    } catch (error) {
+      console.error(error);
+      setReactions((current) => ({ ...current, [key]: previous }));
+      showToast("Couldn't save your reaction. Please try again.", { isError: true });
+    }
+  };
+
+  const handleSave = async (result: Recommendation) => {
+    const key = outfitKey(result.outfit);
+    setBusyOutfit(key);
+    try {
+      await apiJson("/wardrobe/saved-outfits", "POST", {
+        name: query.trim().slice(0, 100) || "My outfit",
+        item_ids: outfitItemIds(result.outfit),
+      });
+      setSaved((current) => ({ ...current, [key]: true }));
+      showToast("Saved. You'll find it under Calendar.");
+    } catch (error) {
+      console.error(error);
+      showToast("Couldn't save this outfit. Please try again.", { isError: true });
+    } finally {
+      setBusyOutfit(null);
     }
   };
 
   return (
-    <div className="max-w-4xl mx-auto mt-4 relative z-10">
-      {/* Search Header */}
-      <div className="bg-white/5 backdrop-blur-xl p-8 rounded-2xl border border-white/10 shadow-2xl mb-12">
-        <h2 className="text-3xl font-bold mb-2 text-white tracking-tight">Contextual Dress Me</h2>
-        <p className="text-gray-400 mb-8">Ask the AI for an outfit based on occasion, weather, or vibe.</p>
-        
-        <div className="flex gap-4">
-          <input
-            type="text"
+    <div className="max-w-5xl">
+      <PageHeader title="Outfit Ideas" description="Describe an occasion, the weather or a vibe, and get outfits from your own clothes." />
+
+      <div className="rounded-2xl border bg-card p-4 md:p-6 mb-8">
+        <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3">
+          <Input
+            aria-label="Describe what you need an outfit for"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="e.g., 'Formal wear for an interview'..."
-            className="flex-1 px-6 py-4 bg-black/40 border border-white/10 rounded-xl text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+            maxLength={500}
+            placeholder="e.g. Formal wear for an interview"
+            className="h-11 grow"
           />
-          <button
-            onClick={getRecommendations}
-            disabled={loading}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white px-8 py-4 rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-indigo-500/20"
-          >
-            {loading ? "Designing..." : "Suggest Outfit"}
-          </button>
+          <Button type="submit" size="lg" disabled={loading || !query.trim()} className="h-11">
+            <Sparkles /> {loading ? "Finding outfits..." : "Suggest outfits"}
+          </Button>
+        </form>
+
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <Button type="button" variant="secondary" size="sm" disabled={loading || loadingWeather} onClick={handleWhatToday}>
+            {TODAY_PROMPT}
+          </Button>
+          {weather ? (
+            <Button type="button" variant="ghost" size="sm" onClick={() => setWeather(null)} aria-label="Stop using my weather">
+              <CloudSun /> {Math.round(weather.temperature)}°C, {weather.condition} ×
+            </Button>
+          ) : (
+            <Button type="button" variant="ghost" size="sm" disabled={loadingWeather} onClick={loadWeather}>
+              <CloudSun /> {loadingWeather ? "Checking..." : "Use my weather"}
+            </Button>
+          )}
         </div>
       </div>
 
-      {message && <p className="text-gray-400 px-2 pb-12">{message}</p>}
+      {loading && <SkeletonGrid count={4} />}
 
-      {/* Recommendations Grid */}
-      {recommendations.length > 0 && (
-        <div className="space-y-8 pb-12">
-          <h3 className="text-xl font-medium text-gray-300 px-2">Tailored Suggestions</h3>
-          <div className="grid grid-cols-1 gap-6">
-            {recommendations.map((result, index) => (
-              <div key={index} className="group bg-white/5 backdrop-blur-md rounded-2xl border border-white/10 overflow-hidden hover:border-white/20 transition-all">
-                <div className="p-4 flex justify-between items-center border-b border-white/5 bg-white/5">
-                  <span className="text-xs uppercase tracking-widest text-indigo-400 font-bold">Concept {index + 1}</span>
-                  <div className="flex items-center gap-4">
-                    <span className="text-xs text-gray-400">Match Score: {(result.score * 100).toFixed(0)}%</span>
-                    <button 
-                      onClick={() => handleWearToday(index, result.outfit)}
-                      disabled={markingAsWorn === index}
-                      className="bg-white/10 hover:bg-white/20 text-white text-[10px] px-3 py-1.5 rounded-lg border border-white/10 transition-colors uppercase font-bold tracking-tighter"
+      {!loading && message && <EmptyState icon={Sparkles} title={message} />}
+
+      {!loading && recommendations.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 pb-8">
+          {recommendations.map((result, index) => {
+            const key = outfitKey(result.outfit);
+            const reaction = reactions[key];
+            const pieces = SLOT_ORDER.flatMap((slot) => {
+              const piece = result.outfit[slot];
+              return piece ? [{ key: slot, url: piece.url, label: SLOT_NAMES[slot] }] : [];
+            });
+
+            return (
+              <div key={key} className="rounded-2xl border bg-card overflow-hidden flex flex-col">
+                <div className="flex items-center justify-between gap-3 px-4 py-3">
+                  <span className="text-sm font-semibold">{index === 0 ? "Best match" : `Option ${index + 1}`}</span>
+                  <span className="text-xs text-muted-foreground">{(result.score * 100).toFixed(0)}% match</span>
+                </div>
+
+                <OutfitPieces pieces={pieces} />
+
+                <div className="flex flex-wrap items-center gap-2 p-3 mt-auto">
+                  <Button size="sm" disabled={busyOutfit === key} onClick={() => handleWearToday(index, result)}>
+                    {busyOutfit === key ? "Saving..." : "Wear today"}
+                  </Button>
+                  <Button size="sm" variant="secondary" disabled={busyOutfit === key || saved[key]} onClick={() => handleSave(result)}>
+                    <Bookmark /> {saved[key] ? "Saved" : "Save"}
+                  </Button>
+                  <div className="ml-auto flex gap-1">
+                    <Button
+                      size="icon-sm"
+                      variant={reaction === true ? "default" : "ghost"}
+                      aria-label="I like this outfit"
+                      aria-pressed={reaction === true}
+                      onClick={() => handleReaction(result, true)}
                     >
-                      {markingAsWorn === index ? "Updating..." : "Wear Today"}
-                    </button>
+                      <ThumbsUp />
+                    </Button>
+                    <Button
+                      size="icon-sm"
+                      variant={reaction === false ? "default" : "ghost"}
+                      aria-label="I don't like this outfit"
+                      aria-pressed={reaction === false}
+                      onClick={() => handleReaction(result, false)}
+                    >
+                      <ThumbsDown />
+                    </Button>
                   </div>
                 </div>
-                
-                <div className={`grid gap-1 p-1 ${result.outfit.fullbody ? "grid-cols-1" : "grid-cols-2"}`}>
-                  {(Object.keys(result.outfit) as OutfitSlot[]).map((slot) => (
-                    <div key={slot} className="relative aspect-3/4 overflow-hidden bg-black/20">
-                      <img 
-                        src={result.outfit[slot]?.url} 
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" 
-                        alt={slot} 
-                      />
-                      <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded text-[10px] uppercase text-white">
-                        {slot}
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
       )}
     </div>

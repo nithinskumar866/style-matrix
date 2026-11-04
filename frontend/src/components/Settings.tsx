@@ -1,15 +1,51 @@
-import type { User } from "@supabase/supabase-js";
-import { useEffect, useState, useRef, type ChangeEvent } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
+import { PageHeader } from "@/components/ui/page-states";
+import { useAppContext } from "@/context/AppContext";
+import { useToast } from "@/context/ToastContext";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { supabase } from "../lib/supabaseClient";
-import { useNavigate } from "react-router-dom";
+
+const GENDER_OPTIONS = [
+  { value: "female", label: "Female" },
+  { value: "male", label: "Male" },
+  { value: "other", label: "Other" },
+];
+const BODY_TYPE_OPTIONS = [
+  { value: "slim", label: "Slim" },
+  { value: "athletic", label: "Athletic" },
+  { value: "average", label: "Average" },
+  { value: "curvy", label: "Curvy" },
+  { value: "plus-size", label: "Plus size" },
+];
+const SKIN_TONE_OPTIONS = [
+  { value: "fair", label: "Fair" },
+  { value: "light", label: "Light" },
+  { value: "medium", label: "Medium" },
+  { value: "tan", label: "Tan" },
+  { value: "deep", label: "Deep" },
+];
+
+// Profiles saved before these were dropdowns and number fields hold free text
+const matchOption = (options: { value: string }[], saved: unknown) => {
+  const text = String(saved ?? "").trim().toLowerCase();
+  return options.some((option) => option.value === text) ? text : "";
+};
+const asPositiveNumber = (saved: unknown) => {
+  const value = Number(saved);
+  return value > 0 ? String(value) : "";
+};
 
 export default function Settings() {
-  const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const { user, logout } = useAppContext();
+  const { showToast } = useToast();
 
-  const [user, setUser] = useState<User | null>(null);
-  const [avatarUrl, setAvatarUrl] = useState<string>("");
-
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [useProfile, setUseProfile] = useState(true);
   const [formData, setFormData] = useState({
     name: "",
     username: "",
@@ -23,38 +59,42 @@ export default function Settings() {
   useEffect(() => {
     const getUser = async () => {
       const { data } = await supabase.auth.getUser();
-      if (data.user) {
-        setUser(data.user);
-        setAvatarUrl(data.user.user_metadata?.avatar_url || "");
+      const metadata = data.user?.user_metadata;
+      if (!metadata) return;
 
-        setFormData({
-          name: data.user.user_metadata?.name || "",
-          username: data.user.user_metadata?.username || "",
-          height: data.user.user_metadata?.height || "",
-          weight: data.user.user_metadata?.weight || "",
-          gender: data.user.user_metadata?.gender || "",
-          skintone: data.user.user_metadata?.skintone || "",
-          bodytype: data.user.user_metadata?.bodytype || "",
-        });
-      }
+      setAvatarUrl(metadata.avatar_url || "");
+      setUseProfile(metadata.use_profile_for_suggestions !== false);
+      setFormData({
+        name: metadata.name || "",
+        username: metadata.username || "",
+        height: asPositiveNumber(metadata.height),
+        weight: asPositiveNumber(metadata.weight),
+        gender: matchOption(GENDER_OPTIONS, metadata.gender),
+        skintone: matchOption(SKIN_TONE_OPTIONS, metadata.skintone),
+        bodytype: matchOption(BODY_TYPE_OPTIONS, metadata.bodytype),
+      });
     };
     getUser();
   }, []);
 
-  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSave = async () => {
+  const handleSave = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
     const { error } = await supabase.auth.updateUser({
       data: {
         ...formData,
         avatar_url: avatarUrl,
+        use_profile_for_suggestions: useProfile,
       },
     });
+    setSaving(false);
 
-    if (error) alert("Error updating profile");
-    else alert("Profile Updated Successfully");
+    if (error) showToast("Couldn't update your profile. Please try again.", { isError: true });
+    else showToast("Profile updated.");
   };
 
   const handleImageUpload = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -68,7 +108,7 @@ export default function Settings() {
       .upload(filePath, file);
 
     if (error) {
-      alert("Upload failed");
+      showToast("Couldn't upload that photo. Please try again.", { isError: true });
       return;
     }
 
@@ -77,80 +117,82 @@ export default function Settings() {
       .getPublicUrl(filePath);
 
     setAvatarUrl(data.publicUrl);
+    showToast("Photo ready. Save your profile to keep it.");
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate("/login");
-  };
+  const selectField = (id: keyof typeof formData, label: string, options: { value: string; label: string }[]) => (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <NativeSelect id={id} name={id} value={formData[id]} onChange={handleChange}>
+        <option value="">Prefer not to say</option>
+        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </NativeSelect>
+    </div>
+  );
+
+  const textField = (id: keyof typeof formData, label: string, extra: React.ComponentProps<typeof Input> = {}) => (
+    <div className="space-y-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input id={id} name={id} value={formData[id]} onChange={handleChange} {...extra} />
+    </div>
+  );
 
   return (
-    <div className="max-w-xl space-y-6">
+    <div className="max-w-xl pb-8">
+      <PageHeader title="Settings" description="Your profile and how it shapes your suggestions." />
 
-      <h2 className="text-xl font-semibold">Profile Settings</h2>
-
-      {/* PROFILE PHOTO */}
-      <div className="flex flex-col items-center space-y-3">
-        <img
-          src={
-            avatarUrl ||
-            `https://api.dicebear.com/7.x/initials/svg?seed=${user?.email}`
-          }
-          className="w-24 h-24 rounded-full object-cover"
-        />
-
-        <input
-          type="file"
-          ref={fileInputRef}
-          onChange={handleImageUpload}
-          hidden
-        />
-
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="px-4 py-2 bg-gray-200 text-gray-900 rounded"
-        >
-          Change Photo
-        </button>
-      </div>
-
-      {/* EMAIL */}
-      <div>
-        <label>Email</label>
-        <input
-          value={user?.email || ""}
-          readOnly
-          className="w-full border px-3 py-2 rounded"
-        />
-      </div>
-
-      {/* OTHER FIELDS */}
-      {Object.keys(formData).map((key) => (
-        <div key={key}>
-          <label className="capitalize">{key}</label>
-          <input
-            name={key}
-            value={formData[key as keyof typeof formData]}
-            onChange={handleChange}
-            className="w-full border px-3 py-2 rounded"
+      <form onSubmit={handleSave} className="space-y-6">
+        <div className="flex items-center gap-4 rounded-2xl border bg-card p-4">
+          <img
+            src={avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${user?.email}`}
+            alt="Your profile"
+            className="w-16 h-16 rounded-full object-cover bg-muted"
           />
+          <input type="file" accept="image/*" ref={fileInputRef} onChange={handleImageUpload} hidden />
+          <div className="min-w-0">
+            <p className="text-sm font-medium truncate">{user?.email}</p>
+            <Button type="button" size="sm" variant="secondary" onClick={() => fileInputRef.current?.click()} className="mt-2">
+              Change photo
+            </Button>
+          </div>
         </div>
-      ))}
 
-      <button
-        onClick={handleSave}
-        className="px-4 py-2 bg-blue-500 text-white rounded"
-      >
-        Save Profile
-      </button>
+        <div className="rounded-2xl border bg-card p-4 space-y-4">
+          <h3 className="text-sm font-semibold">About you</h3>
+          <div className="grid sm:grid-cols-2 gap-4">
+            {textField("name", "Full name")}
+            {textField("username", "Username")}
+          </div>
+        </div>
 
-      <button
-        onClick={handleLogout}
-        className="px-4 py-2 bg-red-500 text-white rounded"
-      >
-        Logout
-      </button>
+        <div className="rounded-2xl border bg-card p-4 space-y-4">
+          <h3 className="text-sm font-semibold">Style profile</h3>
+          <div className="grid sm:grid-cols-2 gap-4">
+            {selectField("gender", "Gender", GENDER_OPTIONS)}
+            {selectField("bodytype", "Body type", BODY_TYPE_OPTIONS)}
+            {selectField("skintone", "Skin tone", SKIN_TONE_OPTIONS)}
+            {textField("height", "Height (cm)", { type: "number", min: "1", step: "1" })}
+            {textField("weight", "Weight (kg)", { type: "number", min: "1", step: "1" })}
+          </div>
+          <label className="flex items-start gap-3 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={useProfile}
+              onChange={(e) => setUseProfile(e.target.checked)}
+              className="mt-0.5 size-4 accent-indigo-500"
+            />
+            <span>
+              Use my style profile for outfit suggestions
+              <span className="block text-xs text-muted-foreground">Gender, body type, skin tone and height gently influence results. Weight isn't used.</span>
+            </span>
+          </label>
+        </div>
 
+        <div className="flex gap-3">
+          <Button type="submit" disabled={saving}>{saving ? "Saving..." : "Save profile"}</Button>
+          <Button type="button" variant="ghost" onClick={logout}>Log out</Button>
+        </div>
+      </form>
     </div>
   );
 }

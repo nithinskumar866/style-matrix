@@ -1,31 +1,77 @@
-import { useAppContext } from "@/context/AppContext";
+import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-states";
+import { useToast } from "@/context/ToastContext";
+import { useApi } from "@/hooks/useApi";
 import { AnimatePresence, motion } from "framer-motion";
-import { FileImage, Loader2, UploadCloud, X } from "lucide-react";
-import React, { useRef, useState } from "react";
+import { Check, CircleAlert, Loader2, UploadCloud, X } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
 import { uploadImageToSupabase } from "../../helper";
 
+type EntryStatus = "ready" | "cleaning" | "uploading" | "analyzing" | "done" | "failed";
+
+interface UploadEntry {
+  id: string;
+  file: File;
+  previewUrl: string;
+  status: EntryStatus;
+}
+
+const STATUS_TEXT: Record<EntryStatus, string> = {
+  ready: "Ready",
+  cleaning: "Removing background...",
+  uploading: "Uploading...",
+  analyzing: "Analysing category and style...",
+  done: "Added to your wardrobe",
+  failed: "Couldn't be added",
+};
+
 export default function ImageUpload() {
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [entries, setEntries] = useState<UploadEntry[]>([]);
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState("Ready for your new items.");
   const [isDragging, setIsDragging] = useState(false);
+  const [removeBackground, setRemoveBackground] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
-  const { BACKEND_URL, session } = useAppContext();
+  const entriesRef = useRef(entries);
 
-  // --- 1. Safe File Handling ---
+  const { apiFetch, apiJson } = useApi();
+  const { showToast } = useToast();
+
+  useEffect(() => {
+    entriesRef.current = entries;
+  }, [entries]);
+
+  // Free the preview images when leaving the page
+  useEffect(() => () => {
+    entriesRef.current.forEach((entry) => URL.revokeObjectURL(entry.previewUrl));
+  }, []);
+
+  const addFiles = (files: File[]) => {
+    const images = files.filter((file) => file.type.startsWith("image/"));
+    setEntries((current) => [
+      ...current,
+      ...images.map((file) => ({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+        status: "ready" as const,
+      })),
+    ]);
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const newFiles = Array.from(e.target.files);
-      setSelectedFiles((prev) => [...prev, ...newFiles]);
-    }
+    if (e.target.files) addFiles(Array.from(e.target.files));
+    // Lets the same file be chosen again after removing it
+    e.target.value = "";
   };
 
-  const removeFile = (indexToRemove: number) => {
-    setSelectedFiles((prev) => prev.filter((_, index) => index !== indexToRemove));
+  const removeEntry = (id: string) => {
+    setEntries((current) => {
+      const entry = current.find((candidate) => candidate.id === id);
+      if (entry) URL.revokeObjectURL(entry.previewUrl);
+      return current.filter((candidate) => candidate.id !== id);
+    });
   };
 
-  // --- 2. Safe Drag and Drop (TypeScript fixed) ---
   const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(true);
@@ -39,64 +85,77 @@ export default function ImageUpload() {
   const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
-    if (e.dataTransfer.files) {
-      // Only accept image files
-      const droppedFiles = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'));
-      setSelectedFiles((prev) => [...prev, ...droppedFiles]);
-    }
+    addFiles(Array.from(e.dataTransfer.files));
   };
 
-  // --- 3. Backend Integration ---
-  const handleSubmit = async () => {
-    if (selectedFiles.length === 0) return alert("Please select an image first.");
-    
-    setLoading(true);
-    setStatus("Uploading to your digital closet...");
-    const imageUrls: string[] = [];
+  const setStatus = (id: string, status: EntryStatus) => {
+    setEntries((current) => current.map((entry) => (entry.id === id ? { ...entry, status } : entry)));
+  };
 
+  const withoutBackground = async (file: File) => {
     try {
-      // Step A: Upload to Supabase Storage
-      for (const file of selectedFiles) {
-        
-        const url = await uploadImageToSupabase(file, "clothing-items")
-        imageUrls.push(url);
-      }
-
-      setStatus("AI is analyzing category and style...");
-
-      // Step B: Send to FastAPI Double Engine
-      const response = await fetch(`${BACKEND_URL}/api/wardrobe/add-clothing`, {
+      const response = await apiFetch("/wardrobe/remove-background", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session?.access_token}`
-        },
-        body: JSON.stringify({"imageUrls":imageUrls}), 
+        headers: { "Content-Type": "application/octet-stream" },
+        body: file,
       });
-
-      if (!response.ok) throw new Error("AI Processing Failed");
-
-      const data = await response.json();
-      setStatus(data.failed > 0
-        ? `Added ${data.added} items. ${data.failed} could not be processed.`
-        : "Successfully added to your wardrobe!");
-      setSelectedFiles([]); // Clear out the list
-      
+      const baseName = file.name.replace(/\.[^.]+$/, "");
+      return { file: new File([await response.blob()], `${baseName}.png`, { type: "image/png" }), cleaned: true };
     } catch (error) {
+      // A photo with its background is still better than no item at all
       console.error(error);
-      setStatus(`Error: ${error instanceof Error ? error.message : "Upload failed"}`);
-    } finally {
-      setLoading(false);
+      return { file, cleaned: false };
     }
   };
 
-  // --- 4. The Elite UI ---
+  const handleSubmit = async () => {
+    const pending = entries.filter((entry) => entry.status === "ready" || entry.status === "failed");
+    setLoading(true);
+    let added = 0;
+    let keptBackground = 0;
+
+    // One at a time, so that progress is visible and one bad photo can't sink the rest
+    for (const entry of pending) {
+      try {
+        let file = entry.file;
+        if (removeBackground) {
+          setStatus(entry.id, "cleaning");
+          const result = await withoutBackground(file);
+          file = result.file;
+          if (!result.cleaned) keptBackground += 1;
+        }
+
+        setStatus(entry.id, "uploading");
+        const url = await uploadImageToSupabase(file, "clothing-items");
+
+        setStatus(entry.id, "analyzing");
+        await apiJson("/wardrobe/add-clothing", "POST", { imageUrls: [url] });
+
+        setStatus(entry.id, "done");
+        added += 1;
+      } catch (error) {
+        console.error(error);
+        setStatus(entry.id, "failed");
+      }
+    }
+
+    setLoading(false);
+    const failed = pending.length - added;
+    if (failed > 0) {
+      showToast(`Added ${added} of ${pending.length}. You can retry the ones that failed.`, { isError: true });
+    } else {
+      showToast(`Added ${added} ${added === 1 ? "item" : "items"} to your wardrobe.`);
+    }
+    if (keptBackground > 0) {
+      showToast(`The background couldn't be removed from ${keptBackground} ${keptBackground === 1 ? "photo" : "photos"}, so the original was used.`);
+    }
+  };
+
+  const pendingCount = entries.filter((entry) => entry.status === "ready" || entry.status === "failed").length;
+
   return (
-    <div className="w-full max-w-2xl mx-auto p-8 bg-white/40 dark:bg-zinc-950/40 backdrop-blur-xl rounded-none border border-zinc-200 dark:border-zinc-800 shadow-sm">
-      <div className="mb-8">
-        <h2 className="text-2xl font-serif tracking-wide text-zinc-900 dark:text-zinc-100">DIGITIZE WARDROBE</h2>
-        <p className="text-xs uppercase tracking-widest text-zinc-500 mt-2">{status}</p>
-      </div>
+    <div className="w-full max-w-2xl pb-8">
+      <PageHeader title="Add Clothes" description="We'll sort each photo into the right category for you." />
 
       <input
         type="file"
@@ -107,46 +166,64 @@ export default function ImageUpload() {
         className="hidden"
       />
 
-      {/* Drag & Drop Zone */}
       <div
+        role="button"
+        tabIndex={0}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
         onClick={() => fileInputRef.current?.click()}
-        className={`relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed cursor-pointer transition-all duration-300 ease-in-out ${
-          isDragging 
-            ? "border-zinc-900 dark:border-zinc-100 bg-zinc-100/50 dark:bg-zinc-900/50" 
-            : "border-zinc-300 dark:border-zinc-700 hover:border-zinc-500 dark:hover:border-zinc-500 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") fileInputRef.current?.click();
+        }}
+        className={`flex flex-col items-center justify-center w-full h-44 rounded-2xl border-2 border-dashed cursor-pointer transition-colors ${
+          isDragging ? "border-indigo-400 bg-accent" : "border-border bg-card hover:border-indigo-400"
         }`}
       >
-        <UploadCloud className={`w-10 h-10 mb-4 transition-colors ${isDragging ? "text-zinc-900 dark:text-zinc-100" : "text-zinc-400"}`} />
-        <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
-          {isDragging ? "Drop images here" : "Click or drag images to upload"}
-        </p>
-        <p className="text-xs text-zinc-400 mt-2">JPG, PNG, WEBP</p>
+        <UploadCloud className="w-9 h-9 mb-3 text-muted-foreground" />
+        <p className="text-sm font-medium">{isDragging ? "Drop images here" : "Click or drag images to upload"}</p>
+        <p className="text-xs text-muted-foreground mt-1">JPG, PNG, WEBP</p>
       </div>
 
-      {/* Selected Files List with Framer Motion */}
-      <div className="mt-6 space-y-2">
+      <label className="flex items-start gap-3 mt-4 text-sm cursor-pointer">
+        <input
+          type="checkbox"
+          checked={removeBackground}
+          disabled={loading}
+          onChange={(e) => setRemoveBackground(e.target.checked)}
+          className="mt-0.5 size-4 accent-indigo-500"
+        />
+        <span>
+          Remove backgrounds
+          <span className="block text-xs text-muted-foreground">Clean photos look better and match more accurately. Adds a few seconds per photo.</span>
+        </span>
+      </label>
+
+      <div className="mt-5 space-y-2">
         <AnimatePresence>
-          {selectedFiles.map((file, index) => (
+          {entries.map((entry) => (
             <motion.div
-              key={`${file.name}-${index}`}
+              key={entry.id}
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="flex items-center justify-between bg-zinc-100/50 dark:bg-zinc-900/50 backdrop-blur-md p-3 border border-zinc-200 dark:border-zinc-800"
+              className="flex items-center gap-3 rounded-xl border bg-card p-2"
             >
-              <div className="flex items-center gap-3">
-                <FileImage className="w-4 h-4 text-zinc-500" />
-                <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate max-w-50">
-                  {file.name}
-                </span>
+              <img src={entry.previewUrl} alt="" className="w-14 h-14 rounded-lg bg-zinc-200 object-contain shrink-0" />
+              <div className="min-w-0 grow">
+                <p className="text-sm font-medium truncate">{entry.file.name}</p>
+                <p className={`text-xs flex items-center gap-1 ${entry.status === "failed" ? "text-red-400" : "text-muted-foreground"}`}>
+                  {entry.status === "done" && <Check className="w-3 h-3" />}
+                  {entry.status === "failed" && <CircleAlert className="w-3 h-3" />}
+                  {["cleaning", "uploading", "analyzing"].includes(entry.status) && <Loader2 className="w-3 h-3 animate-spin" />}
+                  {STATUS_TEXT[entry.status]}
+                </p>
               </div>
-              <button 
-                onClick={() => removeFile(index)} 
-                disabled={loading} 
-                className="p-1 text-zinc-400 hover:text-red-500 transition-colors disabled:opacity-50"
+              <button
+                onClick={() => removeEntry(entry.id)}
+                disabled={loading}
+                aria-label={`Remove ${entry.file.name}`}
+                className="p-2 text-muted-foreground hover:text-red-400 transition-colors disabled:opacity-50"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -154,24 +231,10 @@ export default function ImageUpload() {
           ))}
         </AnimatePresence>
       </div>
-      
-      {/* Upload Button */}
-      <div className="mt-8">
-        <button
-          onClick={handleSubmit}
-          disabled={loading || selectedFiles.length === 0}
-          className="w-full flex items-center justify-center py-4 px-6 text-xs uppercase tracking-widest font-bold text-white bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 disabled:bg-zinc-300 dark:disabled:bg-zinc-800 disabled:text-zinc-500 dark:disabled:text-zinc-400 transition-colors"
-        >
-          {loading ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Processing...
-            </>
-          ) : (
-            `Upload & Analyze (${selectedFiles.length})`
-          )}
-        </button>
-      </div>
+
+      <Button size="lg" onClick={handleSubmit} disabled={loading || pendingCount === 0} className="w-full h-12 mt-5">
+        {loading ? <><Loader2 className="animate-spin" /> Processing...</> : `Upload & Analyse (${pendingCount})`}
+      </Button>
     </div>
   );
 }
