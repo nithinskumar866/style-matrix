@@ -147,7 +147,7 @@ export default function Wardrobe() {
           <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
             {data.results.map((item) => (
               <div key={item.id} className="rounded-xl border bg-card overflow-hidden flex flex-col">
-                <div className="relative aspect-square bg-zinc-200">
+                <div className="relative aspect-square overflow-hidden bg-zinc-200">
                   <img
                     src={item.image_url}
                     alt={item.name || getCategoryName(item.category)}
