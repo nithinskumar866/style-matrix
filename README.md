@@ -2,12 +2,12 @@
 
 **An AI wardrobe assistant.** Photograph your clothes, and Style Matrix sorts them into categories, tracks what is in the wash, and suggests outfits from a plain-text prompt such as *"casual weekend"*.
 
-![Style Matrix outfit suggestions](docs/images/outfit-ideas.png)
+![Style Matrix suggesting outfits for a job interview](docs/images/outfit-ideas.png)
 
 ## Contents
 
 - [Features](#features)
-- [Screenshots](#screenshots)
+- [A day with Style Matrix](#a-day-with-style-matrix)
 - [Architecture](#architecture)
 - [How it works](#how-it-works)
 - [AI models](#ai-models)
@@ -19,6 +19,7 @@
 - [Deployment](#deployment)
 - [Training the models](#training-the-models)
 - [Known limitations](#known-limitations)
+- [Photo credits](#photo-credits)
 - [Contributors](#contributors)
 
 ## Features
@@ -39,35 +40,70 @@
 | **Works on phones** | The sidebar becomes a bottom navigation bar on small screens. |
 | **Accounts and profiles** | Email login and profile settings through Supabase. |
 
-## Screenshots
+## A day with Style Matrix
 
-The screenshots use simple drawn sample images, not real clothing photos.
+Maya has a job interview this morning and a closet full of clothes she barely remembers buying. Maya is a made-up example, but every result below is what the app really produced for these photos.
 
-### Sign in
+### 1. She adds her clothes
 
-![Sign in page](docs/images/login.png)
+Maya photographs 12 items and drops the photos in. Each one gets its background removed, is sorted into a category, and is added to her wardrobe, with progress shown for each photo.
 
-### Wardrobe
+![Photos being uploaded, with progress for each one](docs/images/upload.png)
 
-Items appear with their predicted category. Tabs switch between *Available* and *In the Wash*, and the buttons filter by type.
+### 2. Her closet is ready to browse
 
-![Wardrobe page](docs/images/wardrobe.png)
+Her clothes appear on clean, matching backgrounds. Tabs separate what's clean from what's in the wash, and the buttons filter by type.
 
-### Upload
+![Wardrobe page with clothes on clean backgrounds](docs/images/wardrobe.png)
 
-![Upload page](docs/images/upload.png)
+### 3. She fixes what the AI got wrong
 
-### Calendar
+The app labelled 8 of the 12 photos correctly on its first try. It called her blue jeans a skirt and her blue shirt a tee, for example. Fixing a label takes a few seconds, and it changes which outfits she gets. She can also add a price here, which is used to work out cost per wear.
 
-![Outfit calendar page](docs/images/calendar.png)
+![Correcting an item's category to Jeans](docs/images/edit-item.png)
 
-### Insights
+### 4. She asks what to wear
 
-![Wardrobe insights page](docs/images/insights.png)
+Maya types *"Formal outfit for a job interview"* and shares her weather, which is 28°C and cloudy. The best match is her blue shirt, black trousers and blazer. The blazer is there because the prompt calls for a layer. The sneakers are the only shoes she has added, so a suggestion can only be as good as the closet behind it.
 
-### Profile settings
+![Ranked outfit suggestions for a job interview](docs/images/outfit-ideas.png)
 
-![Profile settings page](docs/images/settings.png)
+### 5. She logs what she wears
+
+One tap on **Wear today** records the outfit, and **Undo** is there if she tapped it by mistake.
+
+![Message confirming the outfit was logged, with an Undo button](docs/images/wear-today.png)
+
+Those clothes move to *In the Wash* and stay out of suggestions for 5 days. If she washes something sooner, she can mark it as washed.
+
+![In the Wash tab with a Mark as washed button on each item](docs/images/in-the-wash.png)
+
+### 6. She looks back
+
+The calendar shows what she wore on each day, and her favourite combinations are one tap away as saved outfits.
+
+![Outfit calendar and saved outfits](docs/images/calendar.png)
+
+Insights show how she really uses her wardrobe. Her sneakers and white tee do most of the work, and one dress has never been worn.
+
+![Wardrobe insights](docs/images/insights.png)
+
+### Also in the app
+
+Maya can set a style profile that gently influences her suggestions, and switch it off at any time.
+
+![Profile settings](docs/images/settings.png)
+
+The whole app works on a phone, with a bottom navigation bar in place of the sidebar. Signing in looks like this:
+
+<p>
+  <img src="docs/images/phone-wardrobe.png" alt="Wardrobe page on a phone" width="260">
+  <img src="docs/images/login.png" alt="Sign in page" width="520">
+</p>
+
+### How these screenshots were made
+
+The screenshots come from the app running locally, with the real AI models and a live forecast from Open-Meteo. Login and photo storage used a local stand-in for Supabase. The clothes are openly licensed [stock photos](#photo-credits), not one person's wardrobe. The wear history and prices are sample data added for the example, so the calendar and insights have something to show.
 
 ## Architecture
 
@@ -527,13 +563,34 @@ python train_compatibility_model.py    # Train and save the model
 
 - **Recommendation accuracy:** given an outfit and 4 same-category options, the current compatibility model picks the right item about 58% of the time, against 25% by chance. That's probably optimistic, because `preprocess_items.py` mixes the train, validation and test outfits, and only about 23% of Polyvore items were embedded. A clean retrain is the biggest available improvement.
 - **Tuning:** the 60/40 scoring split and the 0.4 similarity cap are starting values and need testing with real wardrobes.
-- **Shoes and accessories:** the check that recognises them has only been tried on a few simple drawings, so wrong categories may be more common on real photos. They can be corrected on the wardrobe page. Older items keep their existing category.
+- **Category accuracy:** on the 12 photos in the walkthrough, 8 first labels were right, including the shoes and the bag. That's far too few photos to give a real accuracy figure, and wrong labels should be expected. They can be corrected on the wardrobe page. Older items keep their existing category.
 - **Influence of weather and profile:** these only nudge the text search, and they're not a fashion rule system. With a small wardrobe they may change the scores without changing the order.
 - **Match percentage:** it's a relative score for comparing outfits, not a calibrated probability.
 - **Full-body items:** they're only suggested when the prompt names one, such as "dress".
 - **Failed uploads:** photos that can't be processed stay in storage.
 - **Insights:** wears only count from when wear history was added, so earlier wears aren't included.
 - **Not built yet:** retraining from feedback, Google login, and password reset.
+
+## Photo credits
+
+The screenshots show these photos from [Wikimedia Commons](https://commons.wikimedia.org), resized and with their backgrounds removed. Each photo stays under its own licence, and the people credited haven't endorsed this project.
+
+| Photo | Credit | Licence |
+|---|---|---|
+| [White tee](https://commons.wikimedia.org/wiki/File:Ringflash_Tshirt_Blank_Template_(3214240974).jpg) | THOR | [CC BY 2.0](https://creativecommons.org/licenses/by/2.0) |
+| [Grey sweater](https://commons.wikimedia.org/wiki/File:Jersei-coll-alt.jpg) | Joan Rocaguinard | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0) |
+| [Patterned sweater](https://commons.wikimedia.org/wiki/File:Dale_of_Norway_sweater.jpg) | Menswear Market | [CC BY 2.0](https://creativecommons.org/licenses/by/2.0) |
+| [Blue shirt](https://commons.wikimedia.org/wiki/File:Blue_Business_Shirt.jpg) | ChristianGlaeser | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0) |
+| [Black blazer](https://commons.wikimedia.org/wiki/File:Blazer_(139219706).jpg) | hobvias sudoneighm | [CC BY 2.0](https://creativecommons.org/licenses/by/2.0) |
+| [Dark jeans](https://commons.wikimedia.org/wiki/File:501xx-back.jpg) | Tokunori | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0) |
+| [Blue jeans](https://commons.wikimedia.org/wiki/File:Acne_Jeans_Nye_cowboybukser.jpg) | Jane Mejdahl | [CC BY-SA 2.0](https://creativecommons.org/licenses/by-sa/2.0) |
+| [Black trousers](https://commons.wikimedia.org/wiki/File:Cal%C3%A7a,_Acervo_do_Museu_Paulista_da_USP_(1).jpg) | José Rosael, Hélio Nobre, Museu Paulista da USP | [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0) |
+| [Red dress](https://commons.wikimedia.org/wiki/File:1949_Norman_Norell_red_silk_dress_with_cartridge_pleated_skirt_02.jpg) | Rhode Island School of Design Museum | [CC0](https://creativecommons.org/publicdomain/zero/1.0/) |
+| [Summer dress](https://commons.wikimedia.org/wiki/File:Japon_en_bolero_in_Brabants_bont,_objectnr_68711-1-2(2).JPG) | Museum Rotterdam | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0) |
+| [Sneakers](https://commons.wikimedia.org/wiki/File:Paar_sneakers,_Onitsuka,_Tiger,_objectnr_91283-1-2.JPG) | Museum Rotterdam | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0) |
+| [Leather bag](https://commons.wikimedia.org/wiki/File:Weekender4.jpg) | Jochen70 | [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0) |
+
+The screenshots that include the CC BY-SA photos are shared under the same licence terms.
 
 ## Contributors
 
