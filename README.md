@@ -25,11 +25,18 @@
 
 | Feature | What it does |
 |---|---|
-| **Digital wardrobe** | Upload photos in batches, by click or drag and drop. |
-| **Automatic categories** | A ResNet50 classifier sorts each item into one of 50 clothing categories. |
+| **Digital wardrobe** | Upload photos in batches, by click or drag and drop, with a preview and progress for each one. Filter by type, and edit or delete items. |
+| **Background removal** | Removes the background from each photo on upload. It can be switched off, and the original photo is used if it fails. |
+| **Automatic categories** | A ResNet50 classifier sorts clothes into 50 categories, and FashionCLIP picks out shoes and accessories. Any wrong category can be corrected. |
 | **Outfit suggestions** | Describe an occasion or style, and get ranked outfits made from your own clothes. |
+| **Complete outfits** | Adds shoes and an accessory when you own them, and an outer layer when the prompt or weather calls for one. |
 | **Style compatibility** | A trained model scores how well a top and a bottom go together. |
-| **Laundry tracking** | "Wear Today" moves items to *In the Wash* and leaves them out of suggestions for 5 days. |
+| **Weather-aware suggestions** | Uses your current weather from [Open-Meteo](https://open-meteo.com), only after you ask it to. |
+| **Personalised results** | Likes and dislikes change later rankings, and your style profile can influence results. It can be switched off. |
+| **Laundry tracking** | "Wear today" moves items to *In the Wash* and leaves them out of suggestions for 5 days. You can undo it or mark items as washed sooner. |
+| **Outfit calendar** | See what you wore on each day, and keep outfits you like as saved outfits. |
+| **Wardrobe insights** | See your most and least worn clothes, what you never wear, and cost per wear. |
+| **Works on phones** | The sidebar becomes a bottom navigation bar on small screens. |
 | **Accounts and profiles** | Email login and profile settings through Supabase. |
 
 ## Screenshots
@@ -42,13 +49,21 @@ The screenshots use simple drawn sample images, not real clothing photos.
 
 ### Wardrobe
 
-Items appear with their predicted category. The dropdown switches between *Available* and *In the Wash*.
+Items appear with their predicted category. Tabs switch between *Available* and *In the Wash*, and the buttons filter by type.
 
 ![Wardrobe page](docs/images/wardrobe.png)
 
 ### Upload
 
 ![Upload page](docs/images/upload.png)
+
+### Calendar
+
+![Outfit calendar page](docs/images/calendar.png)
+
+### Insights
+
+![Wardrobe insights page](docs/images/insights.png)
 
 ### Profile settings
 
@@ -111,7 +126,7 @@ flowchart LR
 
 ### Adding clothes
 
-The browser uploads photos directly to Supabase Storage, then sends their URLs to the backend. The backend only accepts URLs from the project's own public storage. If some images in a batch can't be read, the rest are still saved.
+The browser sends each photo to the backend to have its background removed, uploads the result to Supabase Storage, then sends its URL to the backend for analysis. The backend only accepts URLs from the project's own public storage. Photos are handled one at a time, so one bad photo doesn't stop the rest. Transparent images are placed on white before analysis, because that's closer to what the models were trained on.
 
 ```mermaid
 sequenceDiagram
@@ -123,6 +138,8 @@ sequenceDiagram
     participant DB as PostgreSQL
 
     User->>FE: Choose photos
+    FE->>API: POST /api/wardrobe/remove-background
+    API-->>FE: Photo without its background
     FE->>S: Upload each photo
     S-->>FE: Public URLs
     FE->>API: POST /api/wardrobe/add-clothing
@@ -139,7 +156,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    A[Text prompt] --> B[FashionCLIP turns the<br/>prompt into an embedding]
+    A[Text prompt] --> B[FashionCLIP turns the prompt into an embedding,<br/>leaning 25% towards the weather and profile]
     B --> C{Asks for a dress,<br/>jumpsuit or similar?}
     C -- Yes --> D[Search full-body items]
     C -- No --> E[Search tops and bottoms]
@@ -148,15 +165,21 @@ flowchart TD
     F --> G{Outfit type}
     G -- Top + bottom --> H[60% compatibility model<br/>40% prompt match]
     G -- Full body --> I[Prompt match]
-    H --> J[Return the 5 best outfits]
-    I --> J
+    H --> K[Adjust for past likes and dislikes]
+    I --> K
+    K --> L[Keep the 5 best outfits]
+    L --> J[Add the best shoes and accessory,<br/>and an outer layer if needed]
 ```
 
 Prompt match is the cosine similarity between the prompt and the item, scaled so that 0.4 or above counts as a full match. For a top and bottom pair, the two items' prompt matches are averaged.
 
+A reaction to the same outfit moves its score by 0.2. A new combination moves by up to 0.1, based on how its pieces were received in other outfits. The finishing pieces are added last, so they don't affect the ranking.
+
+An outer layer is added when the prompt suggests one, such as "winter" or "interview", when it's below 15°C, or when it's raining or snowing. The browser rounds your location to about 1 km before asking Open-Meteo for the weather, and your location isn't sent to the backend.
+
 ### Wear tracking
 
-"Wear Today" records today's date on each item. For the next 5 days, the item appears under *In the Wash* and isn't suggested. After that it returns to *Available* automatically.
+"Wear today" records the time on each item and adds the outfit to your calendar. For the next 5 days, the item appears under *In the Wash* and isn't suggested. After that it returns to *Available* automatically, or sooner if you mark it as washed. Undoing a wear restores the item's earlier date, unless it has been washed or worn again since.
 
 ## AI models
 
@@ -165,14 +188,22 @@ Prompt match is the cosine similarity between the prompt and the item, scaled so
 | **ResNet50** | Classify a clothing photo | DeepFashion | 1 of 50 categories | `backend/app/ai/fashion_resnet50.pth` |
 | **FashionCLIP** | Embed images and text in the same space | Pretrained: [`patrickjohncyh/fashion-clip`](https://huggingface.co/patrickjohncyh/fashion-clip) | 512 numbers | Downloaded on first start |
 | **Compatibility model** | Score how well two items go together | Polyvore outfits | Score from 0 to 1 | `backend/data/polyvore/compatibility_model.pth` |
+| **Silueta** | Remove photo backgrounds, through [rembg](https://github.com/danielgatis/rembg) | Pretrained | Photo with a transparent background | Downloaded on first use (44 MB) |
 
 ### Categories
 
-| Slot | Class IDs | Examples |
-|---|---|---|
-| **Top** | 0–19 | Blazer, Hoodie, Sweater, Tee |
-| **Bottom** | 20–35 | Chinos, Jeans, Shorts, Skirt |
-| **Full body** | 36–49 | Coat, Dress, Jumpsuit, Romper |
+IDs 0–49 are the ResNet50's classes. Before using it, FashionCLIP checks whether the photo shows shoes or an accessory, which get IDs 50 and 51.
+
+| Slot | Examples |
+|---|---|
+| **Top** | Blouse, Hoodie, Sweater, Tee |
+| **Layer** | Blazer, Coat, Jacket, Parka |
+| **Bottom** | Chinos, Jeans, Shorts, Skirt |
+| **Full body** | Dress, Jumpsuit, Kimono, Romper |
+| **Shoes** | Shoes |
+| **Accessory** | Bags, belts, hats, jewelry, watches |
+
+The exact IDs for each slot are in `backend/app/outfit_rules.py`.
 
 ### Compatibility model design
 
@@ -194,6 +225,9 @@ flowchart LR
 erDiagram
     USERS ||--o{ CLOTHING_ITEMS : owns
     USERS ||--o{ FEEDBACK : gives
+    USERS ||--o{ WEAR_EVENTS : logs
+    USERS ||--o{ SAVED_OUTFITS : keeps
+    CLOTHING_ITEMS ||--o{ WEAR_EVENTS : "worn in"
 
     USERS {
         int id PK
@@ -204,10 +238,26 @@ erDiagram
         int user_id FK
         string name
         string image_url
-        string category "Class ID 0-49"
+        string category "Class ID 0-51"
         vector embedding "512 numbers"
         datetime last_worn_date
         float score
+        float price
+    }
+    WEAR_EVENTS {
+        int id PK
+        int user_id FK
+        int item_id FK
+        string outfit_key "Shared by items worn together"
+        datetime worn_at
+        datetime previous_last_worn
+    }
+    SAVED_OUTFITS {
+        int id PK
+        int user_id FK
+        string name
+        json item_ids
+        datetime created_at
     }
     FEEDBACK {
         int id PK
@@ -223,7 +273,7 @@ erDiagram
     }
 ```
 
-The `feedback` table is reserved for learning from user feedback, which isn't built yet.
+The `feedback` table stores each like or dislike. Its weather and time columns aren't filled in yet.
 
 ## API reference
 
@@ -231,12 +281,21 @@ Every endpoint needs a Supabase login token in the `Authorization: Bearer <token
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET` | `/api/wardrobe/items?count=10` | List your clothes, newest first |
+| `GET` | `/api/wardrobe/items` | List your clothes, newest first. Optional: `status`, `slot`, `limit`, `offset` |
+| `PATCH` | `/api/wardrobe/items/{id}` | Change an item's category, name or price |
+| `DELETE` | `/api/wardrobe/items/{id}` | Delete an item |
 | `POST` | `/api/wardrobe/add-clothing` | Add clothes from storage URLs |
-| `POST` | `/api/wardrobe/wear-today` | Mark your items as worn today |
-| `GET` | `/api/recommendation/recommend?prompt=...` | Get outfit suggestions |
+| `POST` | `/api/wardrobe/remove-background` | Send an image, up to 10 MB, and get a PNG back |
+| `POST` | `/api/wardrobe/wear-today` | Mark your items as worn now |
+| `POST` | `/api/wardrobe/undo-wear` | Undo a logged outfit |
+| `POST` | `/api/wardrobe/wash` | Mark your items as washed |
+| `GET` | `/api/wardrobe/history` | Outfits you wore. Optional: `start`, `end`, `limit`, `offset` |
+| `GET` `POST` | `/api/wardrobe/saved-outfits` | List or create saved outfits |
+| `DELETE` | `/api/wardrobe/saved-outfits/{id}` | Delete a saved outfit |
+| `GET` | `/api/wardrobe/insights` | Wardrobe statistics |
+| `POST` | `/api/recommendation/recommend` | Get outfit suggestions |
+| `POST` | `/api/feedback/` | Like or dislike an outfit |
 | `POST` | `/api/user-profile` | Get the profile placeholder |
-| `POST` | `/api/feedback/` | Placeholder that doesn't save yet |
 
 **Example: add clothing**
 
@@ -254,7 +313,19 @@ Response:
 
 **Example: get suggestions**
 
-`GET /api/recommendation/recommend?prompt=casual%20weekend`
+`POST /api/recommendation/recommend`
+
+`weather` and `profile` are optional. They're sent in the request body so that personal details stay out of URLs and server logs.
+
+```json
+{
+  "prompt": "casual weekend",
+  "weather": { "temperature": 8, "condition": "rain" },
+  "profile": { "gender": "female", "body_type": "curvy", "skin_tone": "deep", "height": 155 }
+}
+```
+
+Response:
 
 ```json
 {
@@ -263,7 +334,8 @@ Response:
       "score": 0.47,
       "outfit": {
         "top": { "id": 5, "url": "https://..." },
-        "bottom": { "id": 6, "url": "https://..." }
+        "bottom": { "id": 6, "url": "https://..." },
+        "shoes": { "id": 9, "url": "https://..." }
       }
     }
   ],
@@ -285,11 +357,12 @@ style-matrix/
 │   │   │   └── recommendation/    Compatibility model and training code
 │   │   ├── routes/                API endpoints
 │   │   ├── schemas/               Request and response shapes
+│   │   ├── background.py          Background removal
 │   │   ├── crud.py                Database helpers
 │   │   ├── database.py            Database connection
 │   │   ├── main.py                FastAPI app and CORS
 │   │   ├── models.py              Database tables
-│   │   ├── outfit_rules.py        Outfit slots and prompt routing
+│   │   ├── outfit_rules.py        Outfit slots, layering, hints and feedback rules
 │   │   ├── services.py            Login check and outfit scoring
 │   │   └── util.py                Classification and embeddings
 │   ├── data/polyvore/             Outfit data and model files
@@ -299,8 +372,9 @@ style-matrix/
 │   ├── helper.ts                  Upload helper
 │   └── src/
 │       ├── components/            Pages and UI components
-│       ├── context/               Login state
-│       └── lib/                   Supabase client and category names
+│       ├── context/               Login state and toast messages
+│       ├── hooks/                 API requests
+│       └── lib/                   Supabase client, category names and weather
 └── Dockerfile                     Backend image for deployment
 ```
 
@@ -314,7 +388,7 @@ style-matrix/
 - A [Supabase](https://supabase.com) project with:
   - Email login enabled
   - Asymmetric (ES256) JWT signing keys, because the backend verifies tokens through JWKS
-  - A public storage bucket for clothing photos
+  - A public storage bucket for clothing photos, with a policy that lets logged-in users delete files if photos should be removed along with their items
   - A public storage bucket named `profiles` for avatars
   - The `vector` extension available, which Supabase includes
 
@@ -350,7 +424,7 @@ alembic upgrade head
 uvicorn app.main:app --port 8000
 ```
 
-The first start downloads FashionCLIP from Hugging Face, which can take a few minutes.
+The first start downloads FashionCLIP from Hugging Face, which can take a few minutes. The first background removal downloads its model and sets up its libraries, so that photo takes longer than the rest.
 
 ### 3. Start the frontend
 
@@ -418,6 +492,8 @@ The backend deploys to [Hugging Face Spaces](https://huggingface.co/spaces) as a
 
 Set the backend environment variables on the Space, including `ALLOWED_ORIGINS` with the address of the live frontend.
 
+Run `alembic upgrade head` against the live database when deploying a version with new migrations. The app needs the matching tables to work.
+
 ## Training the models
 
 Pretrained model files come with the repository, so you only need this to retrain them. The training images aren't included, so download these first:
@@ -451,11 +527,13 @@ python train_compatibility_model.py    # Train and save the model
 
 - **Recommendation accuracy:** given an outfit and 4 same-category options, the current compatibility model picks the right item about 58% of the time, against 25% by chance. That's probably optimistic, because `preprocess_items.py` mixes the train, validation and test outfits, and only about 23% of Polyvore items were embedded. A clean retrain is the biggest available improvement.
 - **Tuning:** the 60/40 scoring split and the 0.4 similarity cap are starting values and need testing with real wardrobes.
-- **Outfit slots:** suggestions only cover top + bottom or full-body items. Shoes, outerwear layering and accessories aren't handled.
+- **Shoes and accessories:** the check that recognises them has only been tried on a few simple drawings, so wrong categories may be more common on real photos. They can be corrected on the wardrobe page. Older items keep their existing category.
+- **Influence of weather and profile:** these only nudge the text search, and they're not a fashion rule system. With a small wardrobe they may change the scores without changing the order.
+- **Match percentage:** it's a relative score for comparing outfits, not a calibrated probability.
 - **Full-body items:** they're only suggested when the prompt names one, such as "dress".
 - **Failed uploads:** photos that can't be processed stay in storage.
-- **Mobile:** the layout is designed for desktop screens.
-- **Not built yet:** saving feedback, Google login, and password reset.
+- **Insights:** wears only count from when wear history was added, so earlier wears aren't included.
+- **Not built yet:** retraining from feedback, Google login, and password reset.
 
 ## Contributors
 
